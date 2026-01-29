@@ -40,44 +40,31 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- الحماية الذكية (بدون أزرار) ⚡ ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v4")
+# --- الحماية الذكية ---
+def get_manager(): return stx.CookieManager(key="amin_manager_v5")
 cookie_manager = get_manager()
 
 def check_auth():
-    # 1. لو مسجل دخول من الجلسة الحالية
     if st.session_state.get("auth_success", False): return True
-    
-    # 2. لو مسجل دخول من الكوكيز
     try:
-        if cookie_manager.get("amin_key_v4") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v5") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
 
-    # 3. شاشة الدخول (بدون زر)
     st.markdown("<h2 style='text-align: center;'>⚡ المهندس الأمين</h2>", unsafe_allow_html=True)
     
-    # الدالة اللي بتشتغل أول ما تضغط Enter
     def password_entered():
         if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            # حفظ الكوكيز لمدة 90 يوم
-            cookie_manager.set("amin_key_v4", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v5", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
         else:
             st.session_state.auth_success = False
             
-    # حقل الإدخال مع on_change (السر هنا)
-    st.text_input(
-        "Access Code", 
-        type="password", 
-        key="password_input", 
-        on_change=password_entered # هذا يخليه يدخل طول
-    )
+    st.text_input("Access Code", type="password", key="password_input", on_change=password_entered)
     
     if st.session_state.get("auth_success") is False:
         st.error("Access Denied ❌")
-        
     return False
 
 if not check_auth(): st.stop()
@@ -99,7 +86,7 @@ def analyze_smart(text):
     prompt = f"""
     أنت محاسب شخصي دقيق. حلل النص: '{text}'
     القواعد:
-    1. item: احتفظ بالتفاصيل (مثال: "شريت قهوة وشكلاطة" -> "قهوة وشكلاطة").
+    1. item: احتفظ بالتفاصيل كاملة.
     2. amount: الرقم بدقة.
     3. account: "Cash", "Wahda", "NAB".
     4. type: "income", "expense", "transfer".
@@ -175,7 +162,6 @@ st.title("محفظة المهندس 🏗️")
 col1, col2 = st.columns(2)
 col1.metric("💵 الكاش", f"{balance['Cash']:,.3f} د.ل")
 col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.3f} د.ل")
-
 col3, col4 = st.columns(2)
 col3.metric("🌍 شمال أفريقيا", f"{balance['NAB']:,.3f} د.ل")
 col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.3f} د.ل")
@@ -208,7 +194,7 @@ else:
 
 st.divider()
 
-# الإدخال (مع المسح التلقائي)
+# الإدخال
 with st.form("entry", clear_on_submit=True):
     txt = st.text_input("📝 أوامر المهندس:")
     if st.form_submit_button("تنفيد 🚀") and txt:
@@ -220,16 +206,14 @@ with st.form("entry", clear_on_submit=True):
                 time.sleep(0.5)
                 st.rerun()
 
-# السجل (أبيض)
+# السجل
 st.subheader("📜 آخر الحركات")
 if not df.empty:
     for index, item in df.head(30).iterrows():
         amount = float(item['amount'])
         
-        if amount > 0:
-            css_class = "card-income"
-        else:
-            css_class = "card-expense"
+        if amount > 0: css_class = "card-income"
+        else: css_class = "card-expense"
             
         t_str = item['timestamp'].strftime("%d/%m %I:%M%p")
         
@@ -245,27 +229,50 @@ if not df.empty:
         </div>
         ''', unsafe_allow_html=True)
 
-# الأدوات
+# --- القائمة الجانبية (الأدوات الجديدة) ---
 with st.sidebar:
     st.title("⚙️ الأدوات")
     if st.button("🔄 تحديث"): st.rerun()
     st.write("---")
     
-    with st.expander("📥 تحميل سجل مخصص"):
-        st.write("حدد الفترة:")
-        col_d1, col_d2 = st.columns(2)
-        d_start = col_d1.date_input("من", value=datetime.now()-timedelta(days=30))
-        d_end = col_d2.date_input("إلى", value=datetime.now())
-        
+    # دالة مساعدة لتجهيز ملف الـ CSV
+    def convert_df(dataframe):
+        export = dataframe[['timestamp', 'item', 'amount', 'category', 'account', 'type']].copy()
+        export['timestamp'] = export['timestamp'].apply(lambda x: x.strftime('%Y-%m-%d %I:%M %p'))
+        return export.to_csv(index=False).encode('utf-8-sig')
+
+    # قسم التحميل الجديد (أزرار جاهزة)
+    with st.expander("📥 تحميل التقارير", expanded=True):
         if not df.empty:
-            mask = (df['timestamp'].dt.date >= d_start) & (df['timestamp'].dt.date <= d_end)
-            filtered_df = df.loc[mask]
+            now = datetime.now() + timedelta(hours=2)
             
-            if not filtered_df.empty:
-                export = filtered_df[['timestamp', 'item', 'amount', 'category', 'account', 'type']].copy()
-                export['timestamp'] = export['timestamp'].apply(lambda x: x.strftime('%Y-%m-%d %I:%M %p'))
-                csv = export.to_csv(index=False).encode('utf-8-sig')
-                st.download_button("📄 تحميل الملف", csv, "Statement.csv", "text/csv")
+            # 1. السجل الكامل
+            csv_full = convert_df(df)
+            st.download_button("📄 تحميل السجل كامل", csv_full, f"Full_Statement_{now.date()}.csv", "text/csv")
+            
+            st.write("---") # فاصل
+            
+            # 2. آخر شهر (30 يوم)
+            month_date = now - timedelta(days=30)
+            df_month = df[df['timestamp'] >= month_date]
+            if not df_month.empty:
+                csv_month = convert_df(df_month)
+                st.download_button("📅 تقرير آخر شهر", csv_month, f"Monthly_Statement_{now.date()}.csv", "text/csv")
+            else:
+                st.caption("لا توجد بيانات للشهر الحالي")
+            
+            # 3. آخر أسبوع (7 أيام)
+            week_date = now - timedelta(days=7)
+            df_week = df[df['timestamp'] >= week_date]
+            if not df_week.empty:
+                csv_week = convert_df(df_week)
+                st.download_button("📆 تقرير آخر أسبوع", csv_week, f"Weekly_Statement_{now.date()}.csv", "text/csv")
+            else:
+                st.caption("لا توجد بيانات للأسبوع الحالي")
+        else:
+            st.info("سجل عملياتك أولاً...")
+    
+    st.write("---")
     
     with st.expander("☢️ تصفير المنظومة"):
         del_pass = st.text_input("كلمة السر للتأكيد:", type="password")
