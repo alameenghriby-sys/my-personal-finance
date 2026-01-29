@@ -8,11 +8,12 @@ from firebase_admin import firestore
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 import time
+import io  # 👈 مكتبة جديدة للتعامل مع ملفات الإكسل
 
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="🔋", layout="centered")
 
-# --- تنسيق CSS (الأبيض الناصع) ---
+# --- تنسيق CSS ---
 st.markdown("""
 <style>
     .stMarkdown div { color: inherit; }
@@ -40,14 +41,14 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- الحماية الذكية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v5")
+# --- الحماية ---
+def get_manager(): return stx.CookieManager(key="amin_manager_v6")
 cookie_manager = get_manager()
 
 def check_auth():
     if st.session_state.get("auth_success", False): return True
     try:
-        if cookie_manager.get("amin_key_v5") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v6") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
@@ -57,7 +58,7 @@ def check_auth():
     def password_entered():
         if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v5", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v6", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
         else:
             st.session_state.auth_success = False
             
@@ -158,7 +159,6 @@ if not df.empty:
 # --- الواجهة ---
 st.title("محفظة المهندس 🏗️")
 
-# الأرصدة
 col1, col2 = st.columns(2)
 col1.metric("💵 الكاش", f"{balance['Cash']:,.3f} د.ل")
 col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.3f} د.ل")
@@ -229,46 +229,99 @@ if not df.empty:
         </div>
         ''', unsafe_allow_html=True)
 
-# --- القائمة الجانبية (الأدوات الجديدة) ---
+# --- القائمة الجانبية (محرك التصدير الجديد) ---
 with st.sidebar:
     st.title("⚙️ الأدوات")
     if st.button("🔄 تحديث"): st.rerun()
     st.write("---")
     
-    # دالة مساعدة لتجهيز ملف الـ CSV
-    def convert_df(dataframe):
-        export = dataframe[['timestamp', 'item', 'amount', 'category', 'account', 'type']].copy()
-        export['timestamp'] = export['timestamp'].apply(lambda x: x.strftime('%Y-%m-%d %I:%M %p'))
-        return export.to_csv(index=False).encode('utf-8-sig')
+    # 👇 دالة سحرية لتحويل البيانات إلى ملف Excel منسق وملون
+    def to_excel(df_in):
+        output = io.BytesIO()
+        # 1. ترتيب وتسمية الأعمدة بالعربي
+        df_export = df_in.rename(columns={
+            'timestamp': 'التاريخ والوقت',
+            'item': 'البيان',
+            'amount': 'القيمة (د.ل)',
+            'category': 'التصنيف',
+            'account': 'الحساب',
+            'type': 'نوع العملية'
+        })
+        # اختيار الأعمدة بالترتيب المنطقي
+        df_export = df_export[['التاريخ والوقت', 'البيان', 'القيمة (د.ل)', 'الحساب', 'التصنيف', 'نوع العملية']]
+        
+        # تحويل التاريخ لنص عشان ما يتلخبط في الإكسل
+        df_export['التاريخ والوقت'] = df_export['التاريخ والوقت'].dt.strftime('%Y-%m-%d %I:%M %p')
 
-    # قسم التحميل الجديد (أزرار جاهزة)
-    with st.expander("📥 تحميل التقارير", expanded=True):
+        # 2. الكتابة باستخدام XlsxWriter
+        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
+            df_export.to_excel(writer, index=False, sheet_name='كشف_حساب')
+            workbook = writer.book
+            worksheet = writer.sheets['كشف_حساب']
+            
+            # 3. التنسيقات (Format)
+            # تنسيق العناوين (أخضر غامق، خط أبيض، عريض)
+            header_fmt = workbook.add_format({
+                'bold': True, 'font_size': 12, 'bg_color': '#1b5e20', 
+                'font_color': '#ffffff', 'border': 1, 'align': 'center'
+            })
+            # تنسيق الخلايا العادية
+            cell_fmt = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
+            # تنسيق الأرقام (3 خانات عشرية)
+            num_fmt = workbook.add_format({'border': 1, 'align': 'center', 'num_format': '0.000'})
+            
+            # تطبيق التنسيق على العناوين
+            for col_num, value in enumerate(df_export.columns.values):
+                worksheet.write(0, col_num, value, header_fmt)
+            
+            # 4. ضبط عرض الأعمدة وتجاه الورقة
+            worksheet.right_to_left() # اتجاه عربي
+            worksheet.set_column('A:A', 22, cell_fmt) # التاريخ
+            worksheet.set_column('B:B', 30, cell_fmt) # البيان (عريض)
+            worksheet.set_column('C:C', 15, num_fmt)  # القيمة
+            worksheet.set_column('D:F', 15, cell_fmt) # باقي الأعمدة
+
+        return output.getvalue()
+
+    # قسم التحميل
+    with st.expander("📥 تحميل التقارير (Excel)", expanded=True):
         if not df.empty:
             now = datetime.now() + timedelta(hours=2)
             
-            # 1. السجل الكامل
-            csv_full = convert_df(df)
-            st.download_button("📄 تحميل السجل كامل", csv_full, f"Full_Statement_{now.date()}.csv", "text/csv")
+            # 1. تحميل الكل
+            excel_data = to_excel(df)
+            st.download_button(
+                "📄 تحميل السجل كامل (.xlsx)", 
+                data=excel_data, 
+                file_name=f"Full_Report_{now.date()}.xlsx", 
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            )
             
-            st.write("---") # فاصل
+            st.write("---")
             
-            # 2. آخر شهر (30 يوم)
+            # 2. آخر 30 يوم
             month_date = now - timedelta(days=30)
             df_month = df[df['timestamp'] >= month_date]
             if not df_month.empty:
-                csv_month = convert_df(df_month)
-                st.download_button("📅 تقرير آخر شهر", csv_month, f"Monthly_Statement_{now.date()}.csv", "text/csv")
-            else:
-                st.caption("لا توجد بيانات للشهر الحالي")
+                excel_month = to_excel(df_month)
+                st.download_button(
+                    "📅 تقرير آخر شهر (.xlsx)", 
+                    data=excel_month, 
+                    file_name=f"Monthly_Report_{now.date()}.xlsx", 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
             
-            # 3. آخر أسبوع (7 أيام)
+            # 3. آخر 7 أيام
             week_date = now - timedelta(days=7)
             df_week = df[df['timestamp'] >= week_date]
             if not df_week.empty:
-                csv_week = convert_df(df_week)
-                st.download_button("📆 تقرير آخر أسبوع", csv_week, f"Weekly_Statement_{now.date()}.csv", "text/csv")
-            else:
-                st.caption("لا توجد بيانات للأسبوع الحالي")
+                excel_week = to_excel(df_week)
+                st.download_button(
+                    "📆 تقرير آخر أسبوع (.xlsx)", 
+                    data=excel_week, 
+                    file_name=f"Weekly_Report_{now.date()}.xlsx", 
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                )
         else:
             st.info("سجل عملياتك أولاً...")
     
