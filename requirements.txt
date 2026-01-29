@@ -1,0 +1,5 @@
+streamlit
+google-generativeai
+firebase-admin
+pandas
+extra-streamlit-components
