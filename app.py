@@ -12,51 +12,51 @@ import time
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="🔋", layout="centered")
 
-# --- تنسيق CSS المحسن (شفافية وألوان) ---
+# --- تنسيق CSS (الأبيض الناصع) ---
 st.markdown("""
 <style>
     /* إجبار النص يكون أسود */
     .stMarkdown div { color: inherit; }
     
-    /* تصميم الكروت العام */
+    /* تصميم الكروت (خلفية بيضاء) */
     .transaction-card { 
-        padding: 10px 15px; 
-        margin-bottom: 10px; 
-        border-radius: 10px; 
+        background-color: #ffffff !important; /* أبيض صريح */
+        padding: 15px; 
+        margin-bottom: 12px; 
+        border-radius: 12px; 
         direction: rtl; 
-        color: #000000 !important; /* أسود داكن للقراءة */
-        font-weight: 500;
+        color: #000000 !important; /* خط أسود */
+        font-weight: 600; /* خط عريض شوي */
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* ظل خفيف للجمالية */
     }
     
-    /* ستايل المداخيل (أخضر شفاف) */
+    /* حدود ملونة لتمييز النوع */
     .card-income {
-        background-color: rgba(76, 175, 80, 0.15); /* شفافية */
-        border-right: 5px solid #2e7d32; /* أخضر غامق */
+        border-right: 6px solid #2e7d32; /* شريط أخضر */
     }
     
-    /* ستايل المصاريف (أحمر شفاف) */
     .card-expense {
-        background-color: rgba(229, 57, 53, 0.15); /* شفافية */
-        border-right: 5px solid #c62828; /* أحمر غامق */
+        border-right: 6px solid #c62828; /* شريط أحمر */
     }
 
-    .transaction-card span, .transaction-card strong {
-        color: #000000 !important;
-    }
-    
+    /* تحسين شكل النصوص داخل الكرت */
+    .transaction-card span { color: #333 !important; } /* لون الوصف */
+    .transaction-card strong { color: #000 !important; font-size: 1.1em; } /* لون السعر */
+    .small-details { font-size: 0.85em; color: #666 !important; margin-top: 6px; }
+
     div.stButton > button { width: 100%; border-radius: 12px; height: 50px; font-size: 18px; }
     .metric-value { font-family: 'Arial'; direction: ltr; }
 </style>
 """, unsafe_allow_html=True)
 
 # --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v2")
+def get_manager(): return stx.CookieManager(key="amin_manager_v3")
 cookie_manager = get_manager()
 
 def check_auth():
     if st.session_state.get("auth_success", False): return True
     try:
-        if cookie_manager.get("amin_key_v2") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v3") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
@@ -66,7 +66,7 @@ def check_auth():
     if st.button("Unlock"):
         if pwd == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v2", pwd, expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v3", pwd, expires_at=datetime.now() + timedelta(days=90))
             st.rerun()
         else: st.error("Access Denied")
     return False
@@ -82,19 +82,21 @@ if not firebase_admin._apps:
 db = firestore.client()
 COLLECTION_NAME = 'amin_personal_data'
 
-# --- الذكاء الاصطناعي ---
+# --- الذكاء الاصطناعي (معدل للتفاصيل) ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-flash-latest')
 
 def analyze_smart(text):
     prompt = f"""
-    أنت محاسب شخصي ذكي. حلل النص: '{text}'
-    القواعد:
-    1. تحويل -> Type: "transfer".
-    2. صرف/شراء -> Type: "expense".
-    3. دخل/رصيد -> Type: "income".
-    الحسابات: "Cash", "Wahda", "NAB".
-    المخرجات JSON: type, item, amount, category, account, to_account.
+    أنت محاسب شخصي لمهندس دقيق. حلل النص: '{text}'
+    
+    القواعد الصارمة:
+    1. item: (مهم جداً) احتفظ بالتفاصيل كما هي. مثال: لو قال "شريت خبزة للعيلة" اكتب "خبزة للعيلة". لو قال "غداء مع الشباب" اكتب "غداء مع الشباب". لا تختصر.
+    2. amount: الرقم بدقة.
+    3. account: "Cash", "Wahda", "NAB".
+    4. type: "income", "expense", "transfer".
+
+    المخرجات JSON فقط: type, item, amount, category, account, to_account.
     """
     try:
         response = model.generate_content(prompt)
@@ -104,7 +106,6 @@ def analyze_smart(text):
 
 def add_tx(data):
     now = datetime.now() + timedelta(hours=2)
-    # التأكد من أن الرقم عشري (Float)
     amt_val = float(data['amount']) 
     
     if data['type'] == 'transfer':
@@ -152,7 +153,7 @@ if not df.empty:
         df['timestamp'] = df['timestamp'].dt.tz_localize(None)
     df = df.sort_values(by='timestamp', ascending=False)
 
-# حساب الأرصدة (بدون تقريب)
+# حساب الأرصدة
 balance = {'Cash': 0.0, 'Wahda': 0.0, 'NAB': 0.0}
 if not df.empty:
     for index, row in df.iterrows():
@@ -163,8 +164,7 @@ if not df.empty:
 # --- الواجهة ---
 st.title("محفظة المهندس 🏗️")
 
-# الأرصدة (تنسيق 3 خانات عشرية)
-# .3f تعني 3 أرقام بعد الفاصلة
+# الأرصدة
 col1, col2 = st.columns(2)
 col1.metric("💵 الكاش", f"{balance['Cash']:,.3f} د.ل")
 col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.3f} د.ل")
@@ -201,8 +201,7 @@ else:
 
 st.divider()
 
-# الإدخال (مع خاصية المسح التلقائي)
-# clear_on_submit=True هي الحل السحري لمسح الخانة
+# الإدخال
 with st.form("entry", clear_on_submit=True):
     txt = st.text_input("📝 أوامر المهندس:")
     if st.form_submit_button("تنفيد 🚀") and txt:
@@ -210,34 +209,31 @@ with st.form("entry", clear_on_submit=True):
             res = analyze_smart(txt)
             if res:
                 add_tx(res)
-                st.success("تم التنفيذ") # رسالة قصيرة عشان تختفي بسرعة
+                st.success("تم!")
                 time.sleep(0.5)
                 st.rerun()
 
-# السجل (بالألوان الجديدة)
+# السجل (الستايل الجديد)
 st.subheader("📜 آخر الحركات")
 if not df.empty:
     for index, item in df.head(30).iterrows():
         amount = float(item['amount'])
         
-        # تحديد الكلاس (الستايل) حسب القيمة
         if amount > 0:
             css_class = "card-income"
-            sign = "+"
         else:
             css_class = "card-expense"
-            sign = "" # السالب بيطلع بروحه مع الرقم
             
         t_str = item['timestamp'].strftime("%d/%m %I:%M%p")
         
-        # كود HTML يستخدم الكلاسات الجديدة
+        # كود HTML للخلفية البيضاء والتفاصيل
         st.markdown(f'''
         <div class="transaction-card {css_class}">
             <div style="display: flex; justify-content: space-between;">
                 <strong>{amount:,.3f} د.ل</strong>
                 <span>{item['item']}</span>
             </div>
-            <div style="font-size: 0.85em; opacity: 0.8; margin-top: 5px;">
+            <div class="small-details">
                 {t_str} | {item['account']} | {item.get('category','')}
             </div>
         </div>
