@@ -4,3 +4,4 @@ firebase-admin
 pandas
 extra-streamlit-components
 xlsxwriter
+plotly
