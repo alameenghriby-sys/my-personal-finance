@@ -15,33 +15,24 @@ st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="🔋", layout="c
 # --- تنسيق CSS (الأبيض الناصع) ---
 st.markdown("""
 <style>
-    /* إجبار النص يكون أسود */
     .stMarkdown div { color: inherit; }
     
-    /* تصميم الكروت (خلفية بيضاء) */
     .transaction-card { 
-        background-color: #ffffff !important; /* أبيض صريح */
+        background-color: #ffffff !important; 
         padding: 15px; 
         margin-bottom: 12px; 
         border-radius: 12px; 
         direction: rtl; 
-        color: #000000 !important; /* خط أسود */
-        font-weight: 600; /* خط عريض شوي */
-        box-shadow: 0 2px 6px rgba(0,0,0,0.1); /* ظل خفيف للجمالية */
+        color: #000000 !important; 
+        font-weight: 600; 
+        box-shadow: 0 2px 6px rgba(0,0,0,0.1); 
     }
     
-    /* حدود ملونة لتمييز النوع */
-    .card-income {
-        border-right: 6px solid #2e7d32; /* شريط أخضر */
-    }
-    
-    .card-expense {
-        border-right: 6px solid #c62828; /* شريط أحمر */
-    }
+    .card-income { border-right: 6px solid #2e7d32; }
+    .card-expense { border-right: 6px solid #c62828; }
 
-    /* تحسين شكل النصوص داخل الكرت */
-    .transaction-card span { color: #333 !important; } /* لون الوصف */
-    .transaction-card strong { color: #000 !important; font-size: 1.1em; } /* لون السعر */
+    .transaction-card span { color: #333 !important; }
+    .transaction-card strong { color: #000 !important; font-size: 1.1em; }
     .small-details { font-size: 0.85em; color: #666 !important; margin-top: 6px; }
 
     div.stButton > button { width: 100%; border-radius: 12px; height: 50px; font-size: 18px; }
@@ -49,26 +40,44 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v3")
+# --- الحماية الذكية (بدون أزرار) ⚡ ---
+def get_manager(): return stx.CookieManager(key="amin_manager_v4")
 cookie_manager = get_manager()
 
 def check_auth():
+    # 1. لو مسجل دخول من الجلسة الحالية
     if st.session_state.get("auth_success", False): return True
+    
+    # 2. لو مسجل دخول من الكوكيز
     try:
-        if cookie_manager.get("amin_key_v3") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v4") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
 
+    # 3. شاشة الدخول (بدون زر)
     st.markdown("<h2 style='text-align: center;'>⚡ المهندس الأمين</h2>", unsafe_allow_html=True)
-    pwd = st.text_input("Access Code", type="password")
-    if st.button("Unlock"):
-        if pwd == st.secrets["FAMILY_PASSWORD"]:
+    
+    # الدالة اللي بتشتغل أول ما تضغط Enter
+    def password_entered():
+        if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v3", pwd, expires_at=datetime.now() + timedelta(days=90))
-            st.rerun()
-        else: st.error("Access Denied")
+            # حفظ الكوكيز لمدة 90 يوم
+            cookie_manager.set("amin_key_v4", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+        else:
+            st.session_state.auth_success = False
+            
+    # حقل الإدخال مع on_change (السر هنا)
+    st.text_input(
+        "Access Code", 
+        type="password", 
+        key="password_input", 
+        on_change=password_entered # هذا يخليه يدخل طول
+    )
+    
+    if st.session_state.get("auth_success") is False:
+        st.error("Access Denied ❌")
+        
     return False
 
 if not check_auth(): st.stop()
@@ -82,21 +91,19 @@ if not firebase_admin._apps:
 db = firestore.client()
 COLLECTION_NAME = 'amin_personal_data'
 
-# --- الذكاء الاصطناعي (معدل للتفاصيل) ---
+# --- الذكاء الاصطناعي ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-flash-latest')
 
 def analyze_smart(text):
     prompt = f"""
-    أنت محاسب شخصي لمهندس دقيق. حلل النص: '{text}'
-    
-    القواعد الصارمة:
-    1. item: (مهم جداً) احتفظ بالتفاصيل كما هي. مثال: لو قال "شريت خبزة للعيلة" اكتب "خبزة للعيلة". لو قال "غداء مع الشباب" اكتب "غداء مع الشباب". لا تختصر.
+    أنت محاسب شخصي دقيق. حلل النص: '{text}'
+    القواعد:
+    1. item: احتفظ بالتفاصيل (مثال: "شريت قهوة وشكلاطة" -> "قهوة وشكلاطة").
     2. amount: الرقم بدقة.
     3. account: "Cash", "Wahda", "NAB".
     4. type: "income", "expense", "transfer".
-
-    المخرجات JSON فقط: type, item, amount, category, account, to_account.
+    المخرجات JSON: type, item, amount, category, account, to_account.
     """
     try:
         response = model.generate_content(prompt)
@@ -201,7 +208,7 @@ else:
 
 st.divider()
 
-# الإدخال
+# الإدخال (مع المسح التلقائي)
 with st.form("entry", clear_on_submit=True):
     txt = st.text_input("📝 أوامر المهندس:")
     if st.form_submit_button("تنفيد 🚀") and txt:
@@ -213,7 +220,7 @@ with st.form("entry", clear_on_submit=True):
                 time.sleep(0.5)
                 st.rerun()
 
-# السجل (الستايل الجديد)
+# السجل (أبيض)
 st.subheader("📜 آخر الحركات")
 if not df.empty:
     for index, item in df.head(30).iterrows():
@@ -226,7 +233,6 @@ if not df.empty:
             
         t_str = item['timestamp'].strftime("%d/%m %I:%M%p")
         
-        # كود HTML للخلفية البيضاء والتفاصيل
         st.markdown(f'''
         <div class="transaction-card {css_class}">
             <div style="display: flex; justify-content: space-between;">
@@ -243,7 +249,6 @@ if not df.empty:
 with st.sidebar:
     st.title("⚙️ الأدوات")
     if st.button("🔄 تحديث"): st.rerun()
-    
     st.write("---")
     
     with st.expander("📥 تحميل سجل مخصص"):
