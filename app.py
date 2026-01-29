@@ -8,7 +8,7 @@ from firebase_admin import firestore
 from datetime import datetime, timedelta
 import extra_streamlit_components as stx
 import time
-import io  # 👈 مكتبة جديدة للتعامل مع ملفات الإكسل
+import io
 
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="🔋", layout="centered")
@@ -79,7 +79,7 @@ if not firebase_admin._apps:
 db = firestore.client()
 COLLECTION_NAME = 'amin_personal_data'
 
-# --- الذكاء الاصطناعي ---
+# --- الذكاء الاصطناعي (معدل ليكتب عربي بس) ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-flash-latest')
 
@@ -87,10 +87,11 @@ def analyze_smart(text):
     prompt = f"""
     أنت محاسب شخصي دقيق. حلل النص: '{text}'
     القواعد:
-    1. item: احتفظ بالتفاصيل كاملة.
-    2. amount: الرقم بدقة.
-    3. account: "Cash", "Wahda", "NAB".
-    4. type: "income", "expense", "transfer".
+    1. category: يجب أن يكون باللغة العربية حصراً (أمثلة: أكل، مواصلات، اتصالات، دراسة، سيارة، تحويلات). ممنوع الإنجليزية.
+    2. item: احتفظ بالتفاصيل بالعربي.
+    3. amount: الرقم بدقة.
+    4. account: "Cash", "Wahda", "NAB".
+    5. type: "income", "expense", "transfer".
     المخرجات JSON: type, item, amount, category, account, to_account.
     """
     try:
@@ -229,17 +230,35 @@ if not df.empty:
         </div>
         ''', unsafe_allow_html=True)
 
-# --- القائمة الجانبية (محرك التصدير الجديد) ---
+# --- القائمة الجانبية (مع التعريب) ---
 with st.sidebar:
     st.title("⚙️ الأدوات")
     if st.button("🔄 تحديث"): st.rerun()
     st.write("---")
     
-    # 👇 دالة سحرية لتحويل البيانات إلى ملف Excel منسق وملون
+    # دالة التصدير للإكسل (مع الترجمة الفورية)
     def to_excel(df_in):
+        # 1. قاموس ترجمة (عشان لو فيه حاجات قديمة بالإنجليزي)
+        translation_map = {
+            'Groceries': 'تموين', 'Food': 'أكل', 'Food & Drink': 'أكل وشرب',
+            'Transport': 'مواصلات', 'Car': 'سيارة', 'Fuel': 'وقود',
+            'Utilities': 'فواتير', 'Internet': 'إنترنت', 'Phone': 'رصيد',
+            'Shopping': 'تسوق', 'Clothes': 'ملابس',
+            'Health': 'صحة', 'Education': 'دراسة', 'Books': 'كتب',
+            'Transfer': 'تحويل', 'Income': 'دخل', 'Salary': 'راتب',
+            'Entertainment': 'ترفيه', 'Gym': 'جيم', 'Other': 'أخرى'
+        }
+
         output = io.BytesIO()
-        # 1. ترتيب وتسمية الأعمدة بالعربي
-        df_export = df_in.rename(columns={
+        df_export = df_in.copy()
+
+        # 2. تطبيق الترجمة على عمود التصنيف
+        if 'category' in df_export.columns:
+            # يترجم الكلمة لو لقاها، ولو ما لقاهاش يخليها زي ما هي
+            df_export['category'] = df_export['category'].map(lambda x: translation_map.get(x, x))
+
+        # 3. تغيير أسماء الأعمدة للعربية
+        df_export = df_export.rename(columns={
             'timestamp': 'التاريخ والوقت',
             'item': 'البيان',
             'amount': 'القيمة (د.ل)',
@@ -247,81 +266,57 @@ with st.sidebar:
             'account': 'الحساب',
             'type': 'نوع العملية'
         })
-        # اختيار الأعمدة بالترتيب المنطقي
-        df_export = df_export[['التاريخ والوقت', 'البيان', 'القيمة (د.ل)', 'الحساب', 'التصنيف', 'نوع العملية']]
         
-        # تحويل التاريخ لنص عشان ما يتلخبط في الإكسل
+        df_export = df_export[['التاريخ والوقت', 'البيان', 'القيمة (د.ل)', 'الحساب', 'التصنيف', 'نوع العملية']]
         df_export['التاريخ والوقت'] = df_export['التاريخ والوقت'].dt.strftime('%Y-%m-%d %I:%M %p')
 
-        # 2. الكتابة باستخدام XlsxWriter
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_export.to_excel(writer, index=False, sheet_name='كشف_حساب')
             workbook = writer.book
             worksheet = writer.sheets['كشف_حساب']
             
-            # 3. التنسيقات (Format)
-            # تنسيق العناوين (أخضر غامق، خط أبيض، عريض)
+            # تنسيقات الإكسل
             header_fmt = workbook.add_format({
                 'bold': True, 'font_size': 12, 'bg_color': '#1b5e20', 
                 'font_color': '#ffffff', 'border': 1, 'align': 'center'
             })
-            # تنسيق الخلايا العادية
             cell_fmt = workbook.add_format({'border': 1, 'align': 'center', 'valign': 'vcenter'})
-            # تنسيق الأرقام (3 خانات عشرية)
             num_fmt = workbook.add_format({'border': 1, 'align': 'center', 'num_format': '0.000'})
             
-            # تطبيق التنسيق على العناوين
             for col_num, value in enumerate(df_export.columns.values):
                 worksheet.write(0, col_num, value, header_fmt)
             
-            # 4. ضبط عرض الأعمدة وتجاه الورقة
-            worksheet.right_to_left() # اتجاه عربي
-            worksheet.set_column('A:A', 22, cell_fmt) # التاريخ
-            worksheet.set_column('B:B', 30, cell_fmt) # البيان (عريض)
-            worksheet.set_column('C:C', 15, num_fmt)  # القيمة
-            worksheet.set_column('D:F', 15, cell_fmt) # باقي الأعمدة
+            worksheet.right_to_left()
+            worksheet.set_column('A:A', 22, cell_fmt)
+            worksheet.set_column('B:B', 30, cell_fmt)
+            worksheet.set_column('C:C', 15, num_fmt)
+            worksheet.set_column('D:F', 15, cell_fmt)
 
         return output.getvalue()
 
-    # قسم التحميل
     with st.expander("📥 تحميل التقارير (Excel)", expanded=True):
         if not df.empty:
             now = datetime.now() + timedelta(hours=2)
             
-            # 1. تحميل الكل
+            # زر التحميل الكامل
             excel_data = to_excel(df)
-            st.download_button(
-                "📄 تحميل السجل كامل (.xlsx)", 
-                data=excel_data, 
-                file_name=f"Full_Report_{now.date()}.xlsx", 
-                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            )
+            st.download_button("📄 تحميل السجل كامل (.xlsx)", excel_data, f"Full_Report_{now.date()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
             st.write("---")
             
-            # 2. آخر 30 يوم
+            # زر الشهر
             month_date = now - timedelta(days=30)
             df_month = df[df['timestamp'] >= month_date]
             if not df_month.empty:
                 excel_month = to_excel(df_month)
-                st.download_button(
-                    "📅 تقرير آخر شهر (.xlsx)", 
-                    data=excel_month, 
-                    file_name=f"Monthly_Report_{now.date()}.xlsx", 
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                st.download_button("📅 تقرير آخر شهر (.xlsx)", excel_month, f"Monthly_Report_{now.date()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
             
-            # 3. آخر 7 أيام
+            # زر الأسبوع
             week_date = now - timedelta(days=7)
             df_week = df[df['timestamp'] >= week_date]
             if not df_week.empty:
                 excel_week = to_excel(df_week)
-                st.download_button(
-                    "📆 تقرير آخر أسبوع (.xlsx)", 
-                    data=excel_week, 
-                    file_name=f"Weekly_Report_{now.date()}.xlsx", 
-                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                )
+                st.download_button("📆 تقرير آخر أسبوع (.xlsx)", excel_week, f"Weekly_Report_{now.date()}.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
         else:
             st.info("سجل عملياتك أولاً...")
     
