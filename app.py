@@ -12,17 +12,38 @@ import time
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="🔋", layout="centered")
 
-# --- تنسيق خاص ---
+# --- تنسيق CSS المحسن (شفافية وألوان) ---
 st.markdown("""
 <style>
+    /* إجبار النص يكون أسود */
     .stMarkdown div { color: inherit; }
+    
+    /* تصميم الكروت العام */
     .transaction-card { 
+        padding: 10px 15px; 
+        margin-bottom: 10px; 
+        border-radius: 10px; 
         direction: rtl; 
-        color: black !important; 
+        color: #000000 !important; /* أسود داكن للقراءة */
+        font-weight: 500;
     }
+    
+    /* ستايل المداخيل (أخضر شفاف) */
+    .card-income {
+        background-color: rgba(76, 175, 80, 0.15); /* شفافية */
+        border-right: 5px solid #2e7d32; /* أخضر غامق */
+    }
+    
+    /* ستايل المصاريف (أحمر شفاف) */
+    .card-expense {
+        background-color: rgba(229, 57, 53, 0.15); /* شفافية */
+        border-right: 5px solid #c62828; /* أحمر غامق */
+    }
+
     .transaction-card span, .transaction-card strong {
-        color: black !important;
+        color: #000000 !important;
     }
+    
     div.stButton > button { width: 100%; border-radius: 12px; height: 50px; font-size: 18px; }
     .metric-value { font-family: 'Arial'; direction: ltr; }
 </style>
@@ -83,10 +104,13 @@ def analyze_smart(text):
 
 def add_tx(data):
     now = datetime.now() + timedelta(hours=2)
+    # التأكد من أن الرقم عشري (Float)
+    amt_val = float(data['amount']) 
+    
     if data['type'] == 'transfer':
         db.collection(COLLECTION_NAME).add({
             'item': f"تحويل صادر إلى {data.get('to_account')}",
-            'amount': -float(data['amount']),
+            'amount': -amt_val,
             'category': 'تحويلات',
             'account': data['account'],
             'type': 'transfer_out',
@@ -94,18 +118,17 @@ def add_tx(data):
         })
         db.collection(COLLECTION_NAME).add({
             'item': f"تحويل وارد من {data['account']}",
-            'amount': float(data['amount']),
+            'amount': amt_val,
             'category': 'تحويلات',
             'account': data.get('to_account', 'Cash'),
             'type': 'transfer_in',
             'timestamp': now
         })
     else:
-        amt = float(data['amount'])
-        if data['type'] == 'expense': amt = -amt
+        if data['type'] == 'expense': amt_val = -amt_val
         db.collection(COLLECTION_NAME).add({
             'item': data['item'],
-            'amount': amt,
+            'amount': amt_val,
             'category': data['category'],
             'account': data.get('account', 'Cash'),
             'type': data['type'],
@@ -116,7 +139,7 @@ def delete_all_data():
     docs = db.collection(COLLECTION_NAME).stream()
     for doc in docs: doc.reference.delete()
 
-# --- المعالجة والتحليل ---
+# --- المعالجة ---
 docs = db.collection(COLLECTION_NAME).stream()
 all_data = []
 for doc in docs:
@@ -125,33 +148,30 @@ for doc in docs:
 df = pd.DataFrame(all_data)
 if not df.empty:
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    
-    # 🔴🔴🔴 الحل السحري للمشكلة هنا 🔴🔴🔴
-    # هذا السطر يجرد التاريخ من المنطقة الزمنية باش يقدر يقارنه
     if df['timestamp'].dt.tz is not None:
         df['timestamp'] = df['timestamp'].dt.tz_localize(None)
-    # -------------------------------------
-
     df = df.sort_values(by='timestamp', ascending=False)
 
-# حساب الأرصدة
-balance = {'Cash': 0, 'Wahda': 0, 'NAB': 0}
+# حساب الأرصدة (بدون تقريب)
+balance = {'Cash': 0.0, 'Wahda': 0.0, 'NAB': 0.0}
 if not df.empty:
     for index, row in df.iterrows():
         acc = row.get('account', 'Cash')
         if acc in balance:
-            balance[acc] += row.get('amount', 0)
+            balance[acc] += float(row.get('amount', 0.0))
 
 # --- الواجهة ---
 st.title("محفظة المهندس 🏗️")
 
-# الأرصدة
+# الأرصدة (تنسيق 3 خانات عشرية)
+# .3f تعني 3 أرقام بعد الفاصلة
 col1, col2 = st.columns(2)
-col1.metric("💵 الكاش", f"{balance['Cash']:,.0f} د.ل")
-col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.0f} د.ل")
+col1.metric("💵 الكاش", f"{balance['Cash']:,.3f} د.ل")
+col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.3f} د.ل")
+
 col3, col4 = st.columns(2)
-col3.metric("🌍 شمال أفريقيا", f"{balance['NAB']:,.0f} د.ل")
-col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.0f} د.ل")
+col3.metric("🌍 شمال أفريقيا", f"{balance['NAB']:,.3f} د.ل")
+col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.3f} د.ل")
 
 st.divider()
 
@@ -165,7 +185,6 @@ if not df.empty:
     start_of_week = now - timedelta(days=now.weekday())
     start_of_month = now.replace(day=1)
     
-    # المقارنة توا حتشتغل صح ✅
     week_exp = expenses[expenses['timestamp'] >= start_of_week]['abs_amount'].sum()
     month_exp = expenses[expenses['timestamp'] >= start_of_month]['abs_amount'].sum()
     
@@ -174,45 +193,51 @@ if not df.empty:
     daily_avg = expenses['abs_amount'].sum() / days_active
 
     a1, a2, a3 = st.columns(3)
-    a1.metric("الأسبوع هذا", f"{week_exp:,.0f} د.ل")
-    a2.metric("الشهر هذا", f"{month_exp:,.0f} د.ل")
-    a3.metric("المتوسط اليومي", f"{daily_avg:,.1f} د.ل")
+    a1.metric("الأسبوع هذا", f"{week_exp:,.3f}")
+    a2.metric("الشهر هذا", f"{month_exp:,.3f}")
+    a3.metric("المتوسط اليومي", f"{daily_avg:,.3f}")
 else:
     st.info("البيانات قيد التجميع...")
 
 st.divider()
 
-# الإدخال
-with st.form("entry"):
+# الإدخال (مع خاصية المسح التلقائي)
+# clear_on_submit=True هي الحل السحري لمسح الخانة
+with st.form("entry", clear_on_submit=True):
     txt = st.text_input("📝 أوامر المهندس:")
     if st.form_submit_button("تنفيد 🚀") and txt:
         with st.spinner('تحليل...'):
             res = analyze_smart(txt)
             if res:
                 add_tx(res)
-                st.success("تم!")
-                time.sleep(1)
+                st.success("تم التنفيذ") # رسالة قصيرة عشان تختفي بسرعة
+                time.sleep(0.5)
                 st.rerun()
 
-# السجل
+# السجل (بالألوان الجديدة)
 st.subheader("📜 آخر الحركات")
 if not df.empty:
-    for index, item in df.head(20).iterrows():
-        color = "#81c784" if item['amount'] > 0 else "#e57373"
+    for index, item in df.head(30).iterrows():
+        amount = float(item['amount'])
+        
+        # تحديد الكلاس (الستايل) حسب القيمة
+        if amount > 0:
+            css_class = "card-income"
+            sign = "+"
+        else:
+            css_class = "card-expense"
+            sign = "" # السالب بيطلع بروحه مع الرقم
+            
         t_str = item['timestamp'].strftime("%d/%m %I:%M%p")
         
+        # كود HTML يستخدم الكلاسات الجديدة
         st.markdown(f'''
-        <div class="transaction-card" style="
-            border-right: 5px solid {color}; 
-            background-color: #f9f9f9; 
-            padding: 10px; 
-            margin-bottom: 8px; 
-            border-radius: 8px;">
+        <div class="transaction-card {css_class}">
             <div style="display: flex; justify-content: space-between;">
-                <strong style="color: black;">{item['amount']:,.0f} د.ل</strong>
-                <span style="color: black;">{item['item']}</span>
+                <strong>{amount:,.3f} د.ل</strong>
+                <span>{item['item']}</span>
             </div>
-            <div style="font-size: 0.8em; color: #555; margin-top: 5px;">
+            <div style="font-size: 0.85em; opacity: 0.8; margin-top: 5px;">
                 {t_str} | {item['account']} | {item.get('category','')}
             </div>
         </div>
@@ -232,7 +257,6 @@ with st.sidebar:
         d_end = col_d2.date_input("إلى", value=datetime.now())
         
         if not df.empty:
-            # فلترة التاريخ (توا تشتغل صح لأن وحدنا التوقيت)
             mask = (df['timestamp'].dt.date >= d_start) & (df['timestamp'].dt.date <= d_end)
             filtered_df = df.loc[mask]
             
