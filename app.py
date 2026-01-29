@@ -12,14 +12,13 @@ import time
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="🔋", layout="centered")
 
-# --- تنسيق خاص (إصلاح مشكلة الألوان) ---
+# --- تنسيق خاص ---
 st.markdown("""
 <style>
-    /* إجبار النص يكون أسود داخل البطاقات */
     .stMarkdown div { color: inherit; }
     .transaction-card { 
         direction: rtl; 
-        color: black !important; /* هذا السطر يحل مشكلة الاختفاء */
+        color: black !important; 
     }
     .transaction-card span, .transaction-card strong {
         color: black !important;
@@ -29,7 +28,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- مدير الجلسة والحماية ---
+# --- الحماية ---
 def get_manager(): return stx.CookieManager(key="amin_manager_v2")
 cookie_manager = get_manager()
 
@@ -53,7 +52,7 @@ def check_auth():
 
 if not check_auth(): st.stop()
 
-# --- الاتصال بقاعدة البيانات ---
+# --- قاعدة البيانات ---
 if not firebase_admin._apps:
     key_dict = json.loads(st.secrets["FIREBASE_KEY"])
     cred = credentials.Certificate(key_dict)
@@ -70,19 +69,11 @@ def analyze_smart(text):
     prompt = f"""
     أنت محاسب شخصي ذكي. حلل النص: '{text}'
     القواعد:
-    1. لو ذكر "تحويل" من حساب لحساب -> Type: "transfer".
-    2. لو شراء أو صرف -> Type: "expense".
-    3. لو استلام فلوس أو رصيد مبدئي -> Type: "income".
-    
-    الحسابات: "Cash", "Wahda", "NAB". (لو لم يذكر، افترض Cash).
-
-    المخرجات (JSON):
-    - type: "income", "expense", "transfer".
-    - item: وصف العملية.
-    - amount: المبلغ (دينار).
-    - category: التصنيف (أكل، سيارة، نت، دراسة، أخرى).
-    - account: الحساب المخصوم منه.
-    - to_account: الحساب المستلم (للتحويل فقط).
+    1. تحويل -> Type: "transfer".
+    2. صرف/شراء -> Type: "expense".
+    3. دخل/رصيد -> Type: "income".
+    الحسابات: "Cash", "Wahda", "NAB".
+    المخرجات JSON: type, item, amount, category, account, to_account.
     """
     try:
         response = model.generate_content(prompt)
@@ -91,10 +82,8 @@ def analyze_smart(text):
     except: return None
 
 def add_tx(data):
-    now = datetime.now() + timedelta(hours=2) # توقيت ليبيا
-    
+    now = datetime.now() + timedelta(hours=2)
     if data['type'] == 'transfer':
-        # خصم من المصدر
         db.collection(COLLECTION_NAME).add({
             'item': f"تحويل صادر إلى {data.get('to_account')}",
             'amount': -float(data['amount']),
@@ -103,7 +92,6 @@ def add_tx(data):
             'type': 'transfer_out',
             'timestamp': now
         })
-        # إضافة للمستلم
         db.collection(COLLECTION_NAME).add({
             'item': f"تحويل وارد من {data['account']}",
             'amount': float(data['amount']),
@@ -128,21 +116,25 @@ def delete_all_data():
     docs = db.collection(COLLECTION_NAME).stream()
     for doc in docs: doc.reference.delete()
 
-# --- جلب ومعالجة البيانات ---
+# --- المعالجة والتحليل ---
 docs = db.collection(COLLECTION_NAME).stream()
 all_data = []
 for doc in docs:
-    d = doc.to_dict()
-    all_data.append(d)
+    all_data.append(doc.to_dict())
 
-# تحويل لـ DataFrame للتحليل
 df = pd.DataFrame(all_data)
 if not df.empty:
     df['timestamp'] = pd.to_datetime(df['timestamp'])
-    # ترتيب حسب التاريخ (الأحدث فوق)
+    
+    # 🔴🔴🔴 الحل السحري للمشكلة هنا 🔴🔴🔴
+    # هذا السطر يجرد التاريخ من المنطقة الزمنية باش يقدر يقارنه
+    if df['timestamp'].dt.tz is not None:
+        df['timestamp'] = df['timestamp'].dt.tz_localize(None)
+    # -------------------------------------
+
     df = df.sort_values(by='timestamp', ascending=False)
 
-# حساب الأرصدة الحالية
+# حساب الأرصدة
 balance = {'Cash': 0, 'Wahda': 0, 'NAB': 0}
 if not df.empty:
     for index, row in df.iterrows():
@@ -150,10 +142,10 @@ if not df.empty:
         if acc in balance:
             balance[acc] += row.get('amount', 0)
 
-# --- الواجهة الرئيسية ---
+# --- الواجهة ---
 st.title("محفظة المهندس 🏗️")
 
-# 1. لوحة الأرصدة (Dashboard)
+# الأرصدة
 col1, col2 = st.columns(2)
 col1.metric("💵 الكاش", f"{balance['Cash']:,.0f} د.ل")
 col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.0f} د.ل")
@@ -163,23 +155,20 @@ col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.0f} د.ل")
 
 st.divider()
 
-# 2. تحليل المصاريف (جديد!) 📊
+# التحليلات
 st.subheader("📊 تحليلات الصرف")
 if not df.empty:
-    # فلترة المصاريف فقط (السالب)
     expenses = df[df['amount'] < 0].copy()
     expenses['abs_amount'] = expenses['amount'].abs()
     
-    # حساب تواريخ الأسبوع والشهر
     now = datetime.now() + timedelta(hours=2)
-    start_of_week = now - timedelta(days=now.weekday()) # بداية الأسبوع
-    start_of_month = now.replace(day=1) # بداية الشهر
+    start_of_week = now - timedelta(days=now.weekday())
+    start_of_month = now.replace(day=1)
     
-    # حساب المجموع
+    # المقارنة توا حتشتغل صح ✅
     week_exp = expenses[expenses['timestamp'] >= start_of_week]['abs_amount'].sum()
     month_exp = expenses[expenses['timestamp'] >= start_of_month]['abs_amount'].sum()
     
-    # المتوسط (إجمالي المصاريف / عدد الأيام منذ أول عملية)
     days_active = (now - df['timestamp'].min()).days
     if days_active < 1: days_active = 1
     daily_avg = expenses['abs_amount'].sum() / days_active
@@ -189,11 +178,11 @@ if not df.empty:
     a2.metric("الشهر هذا", f"{month_exp:,.0f} د.ل")
     a3.metric("المتوسط اليومي", f"{daily_avg:,.1f} د.ل")
 else:
-    st.info("سجل بيانات لتبدأ التحليلات...")
+    st.info("البيانات قيد التجميع...")
 
 st.divider()
 
-# 3. إدخال الأوامر
+# الإدخال
 with st.form("entry"):
     txt = st.text_input("📝 أوامر المهندس:")
     if st.form_submit_button("تنفيد 🚀") and txt:
@@ -205,14 +194,13 @@ with st.form("entry"):
                 time.sleep(1)
                 st.rerun()
 
-# 4. سجل الحركات (CSS fixed)
+# السجل
 st.subheader("📜 آخر الحركات")
 if not df.empty:
-    for index, item in df.head(20).iterrows(): # عرض آخر 20
+    for index, item in df.head(20).iterrows():
         color = "#81c784" if item['amount'] > 0 else "#e57373"
         t_str = item['timestamp'].strftime("%d/%m %I:%M%p")
         
-        # كود HTML مع CSS إجباري للون الأسود
         st.markdown(f'''
         <div class="transaction-card" style="
             border-right: 5px solid {color}; 
@@ -229,17 +217,14 @@ if not df.empty:
             </div>
         </div>
         ''', unsafe_allow_html=True)
-else:
-    st.write("لا توجد بيانات.")
 
-# --- القائمة الجانبية (الأدوات) ---
+# الأدوات
 with st.sidebar:
     st.title("⚙️ الأدوات")
     if st.button("🔄 تحديث"): st.rerun()
     
     st.write("---")
     
-    # 5. التحميل المتقدم (جديد!) 📥
     with st.expander("📥 تحميل سجل مخصص"):
         st.write("حدد الفترة:")
         col_d1, col_d2 = st.columns(2)
@@ -247,35 +232,21 @@ with st.sidebar:
         d_end = col_d2.date_input("إلى", value=datetime.now())
         
         if not df.empty:
-            # فلترة حسب التاريخ
+            # فلترة التاريخ (توا تشتغل صح لأن وحدنا التوقيت)
             mask = (df['timestamp'].dt.date >= d_start) & (df['timestamp'].dt.date <= d_end)
             filtered_df = df.loc[mask]
             
             if not filtered_df.empty:
-                # تجهيز CSV
                 export = filtered_df[['timestamp', 'item', 'amount', 'category', 'account', 'type']].copy()
                 export['timestamp'] = export['timestamp'].apply(lambda x: x.strftime('%Y-%m-%d %I:%M %p'))
                 csv = export.to_csv(index=False).encode('utf-8-sig')
-                
-                st.download_button(
-                    "📄 تحميل Excel للفترة المحددة",
-                    csv,
-                    f"Statement_{d_start}_{d_end}.csv",
-                    "text/csv"
-                )
-                st.caption(f"عدد العمليات: {len(filtered_df)}")
-            else:
-                st.warning("لا توجد بيانات في هذه الفترة.")
+                st.download_button("📄 تحميل الملف", csv, "Statement.csv", "text/csv")
     
-    # 6. زر التصفير (جديد!) ☢️
     with st.expander("☢️ تصفير المنظومة"):
         del_pass = st.text_input("كلمة السر للتأكيد:", type="password")
-        if st.button("🗑️ حذف كل البيانات نهائياً"):
+        if st.button("🗑️ حذف كل البيانات"):
             if del_pass == st.secrets["FAMILY_PASSWORD"]:
-                with st.spinner("جاري الفورمات..."):
-                    delete_all_data()
+                delete_all_data()
                 st.success("تم التصفير!")
-                time.sleep(1)
                 st.rerun()
-            else:
-                st.error("الرمز غلط")
+            else: st.error("غلط")
