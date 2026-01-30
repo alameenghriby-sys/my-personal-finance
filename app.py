@@ -33,10 +33,10 @@ st.markdown("""
     /* ألوان العمليات */
     .card-income { border-right: 6px solid #2e7d32; }
     .card-expense { border-right: 6px solid #c62828; }
-    .card-lend { border-right: 6px solid #f57c00; }
-    .card-borrow { border-right: 6px solid #7b1fa2; }
-    .card-repay_in { border-right: 6px solid #0288d1; }
-    .card-repay_out { border-right: 6px solid #d32f2f; }
+    .card-lend { border-right: 6px solid #f57c00; }     /* برتقالي */
+    .card-borrow { border-right: 6px solid #7b1fa2; }   /* بنفسجي */
+    .card-repay_in { border-right: 6px solid #0288d1; } /* أزرق */
+    .card-repay_out { border-right: 6px solid #d32f2f; } /* أحمر غامق */
 
     .transaction-card span { color: #333 !important; }
     .transaction-card strong { color: #000 !important; font-size: 1.1em; }
@@ -48,13 +48,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v14")
+def get_manager(): return stx.CookieManager(key="amin_manager_v15")
 cookie_manager = get_manager()
 
 def check_auth():
     if st.session_state.get("auth_success", False): return True
     try:
-        if cookie_manager.get("amin_key_v14") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v15") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
@@ -63,7 +63,7 @@ def check_auth():
     def password_entered():
         if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v14", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v15", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
         else:
             st.session_state.auth_success = False
     st.text_input("Access Code", type="password", key="password_input", on_change=password_entered)
@@ -178,7 +178,6 @@ if not df.empty:
 # --- الواجهة الرئيسية ---
 st.title("محفظة المهندس 🏗️")
 
-# الأرصدة
 col1, col2 = st.columns(2)
 col1.metric("💵 الكاش", f"{balance['Cash']:,.3f} د.ل")
 col2.metric("🏦 الوحدة", f"{balance['Wahda']:,.3f} د.ل")
@@ -230,15 +229,12 @@ if not df.empty:
 
 st.divider()
 
-# --- 💬 المحلل الذكي (مع المسح التلقائي) ---
+# --- 💬 المحلل الذكي (داخل فورم ليمسح تلقائياً) ---
 with st.expander("💬 اسأل المحلل الذكي (AI)", expanded=False):
     st.caption("اسأل عن فلوسك، مثلاً: كم صرفت على الأكل؟ من يبي مني فلوس؟")
-    
-    # 🔴 التغيير هنا: حطيناه داخل فورم عشان يتصفر
     with st.form("ai_chat", clear_on_submit=True):
         user_q = st.text_input("سؤالك:")
         submitted = st.form_submit_button("إرسال 🗣️")
-        
         if submitted and user_q and not df.empty:
             with st.spinner("قاعد نفكر..."):
                 answer = ask_analyst(user_q, df.head(100))
@@ -284,7 +280,7 @@ with st.sidebar:
 
     st.write("---")
 
-    # التقارير
+    # التقارير (تم إضافة الزر الرابع هنا 👇)
     def to_excel(df_in):
         output = io.BytesIO()
         df_export = df_in.copy()
@@ -312,10 +308,14 @@ with st.sidebar:
             if not df_month.empty: st.download_button("📅 تقرير آخر شهر", to_excel(df_month), f"Month_{now.date()}.xlsx", use_container_width=True)
             # 3. كامل
             st.download_button("🗂️ السجل الكامل", to_excel(df), f"Full_{now.date()}.xlsx", use_container_width=True)
-            # 4. ديون
+            
+            # 4. الديون فقط (الزر المفقود رجع بقوة 💪)
             debt_types = ['lend', 'borrow', 'repay_in', 'repay_out']
             df_debt = df[df['type'].isin(debt_types)]
-            if not df_debt.empty: st.download_button("📒 دفتر الديون", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
+            if not df_debt.empty: 
+                st.download_button("📒 دفتر الديون (لي وعليا)", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
+            else:
+                st.caption("📒 لا توجد ديون مسجلة")
 
     with st.expander("🎯 ضبط الميزانية"):
         new_limit = st.number_input("الحد الشهري:", value=float(budget_limit), step=100.0)
