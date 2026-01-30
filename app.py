@@ -10,6 +10,7 @@ import extra_streamlit_components as stx
 import time
 import io
 import plotly.express as px
+from PIL import Image
 
 # --- إعداد الصفحة ---
 st.set_page_config(page_title="Al-Amin Finance ⚡", page_icon="💎", layout="centered")
@@ -33,10 +34,10 @@ st.markdown("""
     /* ألوان العمليات */
     .card-income { border-right: 6px solid #2e7d32; }
     .card-expense { border-right: 6px solid #c62828; }
-    .card-lend { border-right: 6px solid #f57c00; }     /* برتقالي */
-    .card-borrow { border-right: 6px solid #7b1fa2; }   /* بنفسجي */
-    .card-repay_in { border-right: 6px solid #0288d1; } /* أزرق */
-    .card-repay_out { border-right: 6px solid #d32f2f; } /* أحمر غامق */
+    .card-lend { border-right: 6px solid #f57c00; }     
+    .card-borrow { border-right: 6px solid #7b1fa2; }   
+    .card-repay_in { border-right: 6px solid #0288d1; } 
+    .card-repay_out { border-right: 6px solid #d32f2f; }
 
     .transaction-card span { color: #333 !important; }
     .transaction-card strong { color: #000 !important; font-size: 1.1em; }
@@ -48,13 +49,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v15")
+def get_manager(): return stx.CookieManager(key="amin_manager_v17")
 cookie_manager = get_manager()
 
 def check_auth():
     if st.session_state.get("auth_success", False): return True
     try:
-        if cookie_manager.get("amin_key_v15") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v17") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
@@ -63,7 +64,7 @@ def check_auth():
     def password_entered():
         if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v15", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v17", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
         else:
             st.session_state.auth_success = False
     st.text_input("Access Code", type="password", key="password_input", on_change=password_entered)
@@ -86,7 +87,8 @@ SETTINGS_COLLECTION = 'amin_settings'
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 model = genai.GenerativeModel('gemini-flash-latest')
 
-def analyze_smart(text):
+# تحليل النص
+def analyze_text(text):
     prompt = f"""
     أنت محاسب شخصي ذكي. حلل النص: '{text}'
     الأنواع: lend (سلف صادر)، repay_in (سداد وارد)، borrow (سلف وارد)، repay_out (سداد صادر)، expense (مصروف)، income (دخل)، transfer (تحويل).
@@ -99,7 +101,24 @@ def analyze_smart(text):
         return json.loads(clean)
     except: return None
 
-# دالة المحلل الذكي
+# تحليل الصورة 📸
+def analyze_image(image):
+    prompt = """
+    استخرج بيانات المعاملة المالية من هذه الصورة بدقة.
+    المطلوب JSON يحتوي على:
+    1. amount: الرقم (بدون عملة).
+    2. item: وصف العملية من الصورة.
+    3. account: (Wahda, NAB, Cash).
+    4. type: (expense, income, transfer).
+    5. category: تصنيف بالعربي (اتصالات, تسوق, تحويلات...).
+    """
+    try:
+        response = model.generate_content([prompt, image])
+        clean = response.text.replace('```json', '').replace('```', '').strip()
+        return json.loads(clean)
+    except: return None
+
+# دردشة المحلل
 def ask_analyst(question, dataframe):
     if dataframe.empty: return "مافيش بيانات نحللها يا هندسة."
     data_summary = dataframe.to_string(index=False)
@@ -187,7 +206,7 @@ col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.3f} د.ل")
 
 st.divider()
 
-# نظام الميزانية
+# هدف الشهر (الميزانية)
 st.subheader("🎯 هدف الشهر")
 budget_limit = get_budget()
 if not df.empty:
@@ -229,30 +248,74 @@ if not df.empty:
 
 st.divider()
 
-# --- 💬 المحلل الذكي (داخل فورم ليمسح تلقائياً) ---
+# المحلل الذكي
 with st.expander("💬 اسأل المحلل الذكي (AI)", expanded=False):
-    st.caption("اسأل عن فلوسك، مثلاً: كم صرفت على الأكل؟ من يبي مني فلوس؟")
     with st.form("ai_chat", clear_on_submit=True):
         user_q = st.text_input("سؤالك:")
-        submitted = st.form_submit_button("إرسال 🗣️")
-        if submitted and user_q and not df.empty:
+        if st.form_submit_button("إرسال 🗣️") and user_q and not df.empty:
             with st.spinner("قاعد نفكر..."):
                 answer = ask_analyst(user_q, df.head(100))
                 st.success(answer)
 
 st.divider()
 
-# الإدخال اليدوي
-with st.form("entry", clear_on_submit=True):
-    txt = st.text_input("📝 الأوامر (مصروف، سلف، دخل...):")
-    if st.form_submit_button("تنفيد 🚀") and txt:
-        with st.spinner('تحليل...'):
-            res = analyze_smart(txt)
-            if res:
-                add_tx(res)
-                st.success("تم!")
-                time.sleep(0.5)
-                st.rerun()
+# --- منطقة الإدخال الموحدة (نص + صورة) 📸📝 ---
+st.subheader("📝 تسجيل عملية جديدة")
+if 'draft_tx' not in st.session_state: st.session_state.draft_tx = None
+
+tab1, tab2 = st.tabs(["✍️ كتابة", "📸 رفع صورة"])
+
+# تبويب الكتابة
+with tab1:
+    with st.form("entry", clear_on_submit=True):
+        txt = st.text_input("الأمر:")
+        if st.form_submit_button("تنفيد 🚀") and txt:
+            with st.spinner('تحليل...'):
+                res = analyze_text(txt)
+                if res:
+                    add_tx(res)
+                    st.success("تم!")
+                    time.sleep(0.5)
+                    st.rerun()
+
+# تبويب الصورة
+with tab2:
+    img_file = st.file_uploader("ارفع سكرين شوت", type=['png', 'jpg', 'jpeg'])
+    if img_file:
+        if st.button("تحليل الصورة 🖼️"):
+            with st.spinner('جاري قراءة الصورة...'):
+                image = Image.open(img_file)
+                res = analyze_image(image)
+                if res: st.session_state.draft_tx = res
+                else: st.error("الصورة مش واضحة")
+
+# --- مراجعة الصورة (Draft Review) ---
+if st.session_state.draft_tx:
+    st.info("💡 راجع بيانات الصورة قبل الحفظ:")
+    with st.form("confirm_tx"):
+        col_rev1, col_rev2 = st.columns(2)
+        d_item = col_rev1.text_input("البيان", value=st.session_state.draft_tx.get('item', ''))
+        d_amount = col_rev2.number_input("القيمة", value=float(st.session_state.draft_tx.get('amount', 0.0)))
+        
+        col_rev3, col_rev4 = st.columns(2)
+        d_cat = col_rev3.text_input("التصنيف", value=st.session_state.draft_tx.get('category', 'عام'))
+        d_acc = col_rev4.selectbox("الحساب", ["Cash", "Wahda", "NAB"], index=["Cash", "Wahda", "NAB"].index(st.session_state.draft_tx.get('account', 'Cash')))
+        
+        d_type = st.selectbox("النوع", ["expense", "income", "lend", "borrow", "repay_in", "repay_out", "transfer"], 
+                              index=["expense", "income", "lend", "borrow", "repay_in", "repay_out", "transfer"].index(st.session_state.draft_tx.get('type', 'expense')))
+
+        if st.form_submit_button("✅ اعتماد وحفظ"):
+            final_data = {'item': d_item, 'amount': d_amount, 'category': d_cat, 'account': d_acc, 'type': d_type}
+            if d_type == 'transfer': final_data['to_account'] = st.session_state.draft_tx.get('to_account', 'Cash')
+            add_tx(final_data)
+            st.success("تم الحفظ!")
+            st.session_state.draft_tx = None
+            time.sleep(0.5)
+            st.rerun()
+        
+        if st.form_submit_button("❌ إلغاء"):
+            st.session_state.draft_tx = None
+            st.rerun()
 
 # --- القائمة الجانبية ---
 with st.sidebar:
@@ -280,7 +343,7 @@ with st.sidebar:
 
     st.write("---")
 
-    # التقارير (تم إضافة الزر الرابع هنا 👇)
+    # التقارير (الأزرار الأربعة)
     def to_excel(df_in):
         output = io.BytesIO()
         df_export = df_in.copy()
@@ -308,14 +371,10 @@ with st.sidebar:
             if not df_month.empty: st.download_button("📅 تقرير آخر شهر", to_excel(df_month), f"Month_{now.date()}.xlsx", use_container_width=True)
             # 3. كامل
             st.download_button("🗂️ السجل الكامل", to_excel(df), f"Full_{now.date()}.xlsx", use_container_width=True)
-            
-            # 4. الديون فقط (الزر المفقود رجع بقوة 💪)
+            # 4. ديون
             debt_types = ['lend', 'borrow', 'repay_in', 'repay_out']
             df_debt = df[df['type'].isin(debt_types)]
-            if not df_debt.empty: 
-                st.download_button("📒 دفتر الديون (لي وعليا)", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
-            else:
-                st.caption("📒 لا توجد ديون مسجلة")
+            if not df_debt.empty: st.download_button("📒 دفتر الديون", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
 
     with st.expander("🎯 ضبط الميزانية"):
         new_limit = st.number_input("الحد الشهري:", value=float(budget_limit), step=100.0)
