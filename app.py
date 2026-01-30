@@ -49,13 +49,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v17")
+def get_manager(): return stx.CookieManager(key="amin_manager_v20")
 cookie_manager = get_manager()
 
 def check_auth():
     if st.session_state.get("auth_success", False): return True
     try:
-        if cookie_manager.get("amin_key_v17") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v20") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
@@ -64,7 +64,7 @@ def check_auth():
     def password_entered():
         if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v17", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v20", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
         else:
             st.session_state.auth_success = False
     st.text_input("Access Code", type="password", key="password_input", on_change=password_entered)
@@ -85,15 +85,43 @@ SETTINGS_COLLECTION = 'amin_settings'
 
 # --- الذكاء الاصطناعي ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
+# استخدمنا الموديل المستقر المجاني
 model = genai.GenerativeModel('gemini-1.5-flash')
+
+# دالة توحيد التصنيفات (The Cleaner) 🧹
+def unify_category(cat_name):
+    if not cat_name: return "عام"
+    cat_lower = str(cat_name).lower().strip()
+    
+    # القاموس السحري للتوحيد
+    mapping = {
+        'food': 'أكل', 'dining': 'أكل', 'groceries': 'تموين', 'restaurant': 'مطاعم',
+        'transport': 'مواصلات', 'fuel': 'بنزينة', 'gas': 'بنزينة', 'car': 'سيارة',
+        'internet': 'نت', 'data': 'نت', 'phone': 'رصيد',
+        'shopping': 'تسوق', 'clothes': 'ملابس',
+        'gym': 'رياضة', 'sport': 'رياضة',
+        'gift': 'هدايا', 'gifts': 'هدايا',
+        'salary': 'راتب', 'income': 'دخل',
+        'طعام وشرب': 'أكل', 'بقالة': 'تموين'
+    }
+    
+    # البحث عن كلمات مفتاحية
+    for key, val in mapping.items():
+        if key in cat_lower:
+            return val
+            
+    return cat_name # لو ما لقاش، يرجعه زي ما هو
 
 # تحليل النص
 def analyze_text(text):
     prompt = f"""
-    أنت محاسب شخصي ذكي. حلل النص: '{text}'
-    الأنواع: lend (سلف صادر)، repay_in (سداد وارد)، borrow (سلف وارد)، repay_out (سداد صادر)، expense (مصروف)، income (دخل)، transfer (تحويل).
-    القواعد: item تفاصيل، amount رقم، category عربي، account كاش/وحدة/شمال أفريقيا.
-    المخرجات JSON: type, item, amount, category, account, to_account.
+    أنت محاسب ليبي ذكي. حلل: '{text}'
+    استخرج JSON:
+    type: (lend, repay_in, borrow, repay_out, expense, income, transfer).
+    amount: رقم فقط.
+    category: (أكل, نت, سيارة, تسوق, تموين, ديون, تحويلات, رياضة, هدايا). *اكتب بالعربي فقط*.
+    item: وصف مختصر.
+    account: (Cash, Wahda, NAB).
     """
     try:
         response = model.generate_content(prompt)
@@ -101,16 +129,16 @@ def analyze_text(text):
         return json.loads(clean)
     except: return None
 
-# تحليل الصورة 📸
+# تحليل الصورة
 def analyze_image(image):
     prompt = """
-    استخرج بيانات المعاملة المالية من هذه الصورة بدقة.
-    المطلوب JSON يحتوي على:
-    1. amount: الرقم (بدون عملة).
-    2. item: وصف العملية من الصورة.
-    3. account: (Wahda, NAB, Cash).
-    4. type: (expense, income, transfer).
-    5. category: تصنيف بالعربي (اتصالات, تسوق, تحويلات...).
+    استخرج بيانات المعاملة المالية.
+    المطلوب JSON:
+    amount: الرقم.
+    item: الوصف.
+    account: (Wahda, NAB, Cash).
+    type: (expense, income).
+    category: (أكل, نت, سيارة, تسوق, تموين). *اكتب بالعربي فقط*.
     """
     try:
         response = model.generate_content([prompt, image])
@@ -118,19 +146,19 @@ def analyze_image(image):
         return json.loads(clean)
     except: return None
 
-# دردشة المحلل
+# المحلل الذكي
 def ask_analyst(question, dataframe):
-    if dataframe.empty: return "مافيش بيانات نحللها يا هندسة."
+    if dataframe.empty: return "مافيش بيانات."
     data_summary = dataframe.to_string(index=False)
     prompt = f"""
-    أنت محلل مالي للمهندس الأمين. لديك البيانات:
+    بيانات المهندس الأمين:
     {data_summary}
-    أجب على السؤال: "{question}" بلهجة ليبية ودودة ومختصرة.
+    جاوب سؤاله: "{question}" بلهجة ليبية ومختصرة.
     """
     try:
         response = model.generate_content(prompt)
         return response.text
-    except: return "سامحني، صار خطأ في التفكير."
+    except: return "خطأ."
 
 def add_tx(data):
     now = datetime.now() + timedelta(hours=2)
@@ -139,6 +167,9 @@ def add_tx(data):
     if data['type'] in ['expense', 'lend', 'repay_out']: final_amount = -abs(amt_val)
     elif data['type'] in ['income', 'repay_in', 'borrow']: final_amount = abs(amt_val)
         
+    # توحيد التصنيف قبل الحفظ
+    data['category'] = unify_category(data.get('category', 'عام'))
+
     if data['type'] == 'transfer':
         db.collection(COLLECTION_NAME).add({
             'item': f"تحويل صادر إلى {data.get('to_account')}", 'amount': -abs(amt_val),
@@ -159,7 +190,6 @@ def delete_all_data():
     docs = db.collection(COLLECTION_NAME).stream()
     for doc in docs: doc.reference.delete()
 
-# --- الميزانية ---
 def get_budget():
     doc = db.collection(SETTINGS_COLLECTION).document('monthly_budget').get()
     if doc.exists: return doc.to_dict().get('limit', 1000.0)
@@ -178,6 +208,9 @@ if not df.empty:
     df['timestamp'] = pd.to_datetime(df['timestamp'])
     if df['timestamp'].dt.tz is not None: df['timestamp'] = df['timestamp'].dt.tz_localize(None)
     df = df.sort_values(by='timestamp', ascending=False)
+    
+    # 🔥 هنا السحر: توحيد التصنيفات للبيانات القديمة أيضاً عند العرض
+    df['category'] = df['category'].apply(unify_category)
 
 # الحسابات
 balance = {'Cash': 0.0, 'Wahda': 0.0, 'NAB': 0.0}
@@ -194,7 +227,7 @@ if not df.empty:
         elif t_type == 'borrow': debt_liabilities += abs(amt)
         elif t_type == 'repay_out': debt_liabilities -= abs(amt)
 
-# --- الواجهة الرئيسية ---
+# --- الواجهة ---
 st.title("محفظة المهندس 🏗️")
 
 col1, col2 = st.columns(2)
@@ -206,7 +239,7 @@ col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.3f} د.ل")
 
 st.divider()
 
-# هدف الشهر (الميزانية)
+# الميزانية
 st.subheader("🎯 هدف الشهر")
 budget_limit = get_budget()
 if not df.empty:
@@ -214,14 +247,13 @@ if not df.empty:
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0)
     month_expenses = df[(df['timestamp'] >= start_of_month) & (df['type'] == 'expense')]['amount'].sum()
     month_spent = abs(month_expenses)
-    
     percent = min(month_spent / budget_limit, 1.0)
     st.progress(percent)
     c1, c2 = st.columns(2)
     c1.write(f"صرفت: **{month_spent:,.0f}** د.ل")
     c2.write(f"الحد: **{budget_limit:,.0f}** د.ل")
-    if month_spent > budget_limit: st.error(f"⚠️ تجاوزت الميزانية بـ {month_spent - budget_limit:,.0f} د.ل")
-else: st.info("سجل مصاريف عشان يشتغل العداد")
+    if month_spent > budget_limit: st.error(f"⚠️ تجاوزت الميزانية")
+else: st.info("سجل مصاريف")
 
 st.divider()
 
@@ -233,16 +265,22 @@ d2.metric("🟣 عليا للناس", f"{debt_liabilities:,.3f} د.ل")
 
 st.divider()
 
-# الرسم البياني
-st.subheader("📊 تحليل المصاريف")
+# --- 📊 الرسم البياني (المعدل) ---
+st.subheader("📊 تحليل المصاريف (الصافي)")
 if not df.empty:
     expenses_df = df[df['type'] == 'expense']
     if not expenses_df.empty:
+        # تجميع البيانات بعد التوحيد
         category_sum = expenses_df.groupby('category')['amount'].sum().abs().reset_index()
+        
         fig = px.pie(category_sum, values='amount', names='category', 
-                     color_discrete_sequence=px.colors.qualitative.Pastel, hole=0.4) 
-        fig.update_traces(textposition='inside', textinfo='percent+label')
-        fig.update_layout(showlegend=False, height=350, margin=dict(l=10, r=10, t=10, b=10))
+                     color_discrete_sequence=px.colors.qualitative.Set3, # ألوان هادية
+                     hole=0.4) 
+        
+        # 🔥 التعديل: إخراج النص للخارج لعدم التداخل
+        fig.update_traces(textposition='outside', textinfo='percent+label')
+        fig.update_layout(showlegend=False, height=350, margin=dict(l=20, r=20, t=20, b=20))
+        
         st.plotly_chart(fig, use_container_width=True)
     else: st.caption("مافيش مصاريف للرسم.")
 
@@ -259,13 +297,12 @@ with st.expander("💬 اسأل المحلل الذكي (AI)", expanded=False):
 
 st.divider()
 
-# --- منطقة الإدخال الموحدة (نص + صورة) 📸📝 ---
+# الإدخال
 st.subheader("📝 تسجيل عملية جديدة")
 if 'draft_tx' not in st.session_state: st.session_state.draft_tx = None
 
 tab1, tab2 = st.tabs(["✍️ كتابة", "📸 رفع صورة"])
 
-# تبويب الكتابة
 with tab1:
     with st.form("entry", clear_on_submit=True):
         txt = st.text_input("الأمر:")
@@ -277,8 +314,8 @@ with tab1:
                     st.success("تم!")
                     time.sleep(0.5)
                     st.rerun()
+                else: st.error("فشل التحليل، تأكد من الرصيد.")
 
-# تبويب الصورة
 with tab2:
     img_file = st.file_uploader("ارفع سكرين شوت", type=['png', 'jpg', 'jpeg'])
     if img_file:
@@ -289,105 +326,88 @@ with tab2:
                 if res: st.session_state.draft_tx = res
                 else: st.error("الصورة مش واضحة")
 
-# --- مراجعة الصورة (Draft Review) ---
+# المراجعة
 if st.session_state.draft_tx:
-    st.info("💡 راجع بيانات الصورة قبل الحفظ:")
+    st.info("💡 راجع البيانات:")
     with st.form("confirm_tx"):
         col_rev1, col_rev2 = st.columns(2)
         d_item = col_rev1.text_input("البيان", value=st.session_state.draft_tx.get('item', ''))
         d_amount = col_rev2.number_input("القيمة", value=float(st.session_state.draft_tx.get('amount', 0.0)))
         
         col_rev3, col_rev4 = st.columns(2)
-        d_cat = col_rev3.text_input("التصنيف", value=st.session_state.draft_tx.get('category', 'عام'))
+        # هنا نعرض التصنيف بعد التوحيد
+        cat_unified = unify_category(st.session_state.draft_tx.get('category', 'عام'))
+        d_cat = col_rev3.text_input("التصنيف", value=cat_unified)
         d_acc = col_rev4.selectbox("الحساب", ["Cash", "Wahda", "NAB"], index=["Cash", "Wahda", "NAB"].index(st.session_state.draft_tx.get('account', 'Cash')))
         
         d_type = st.selectbox("النوع", ["expense", "income", "lend", "borrow", "repay_in", "repay_out", "transfer"], 
                               index=["expense", "income", "lend", "borrow", "repay_in", "repay_out", "transfer"].index(st.session_state.draft_tx.get('type', 'expense')))
 
-        if st.form_submit_button("✅ اعتماد وحفظ"):
+        if st.form_submit_button("✅ اعتماد"):
             final_data = {'item': d_item, 'amount': d_amount, 'category': d_cat, 'account': d_acc, 'type': d_type}
             if d_type == 'transfer': final_data['to_account'] = st.session_state.draft_tx.get('to_account', 'Cash')
             add_tx(final_data)
-            st.success("تم الحفظ!")
+            st.success("تم!")
             st.session_state.draft_tx = None
             time.sleep(0.5)
             st.rerun()
-        
         if st.form_submit_button("❌ إلغاء"):
             st.session_state.draft_tx = None
             st.rerun()
 
-# --- القائمة الجانبية ---
+# القائمة الجانبية
 with st.sidebar:
     st.title("⚙️ غرفة التحكم")
     if st.button("🔄 تحديث"): st.rerun()
-    
     st.write("---")
     st.subheader("⚡ عمليات سريعة")
     col_q1, col_q2 = st.columns(2)
     if col_q1.button("🌐 نت (55)"):
-        add_tx({'type':'expense', 'item':'اشتراك نت', 'amount':55, 'category':'اتصالات', 'account':'Wahda'})
+        add_tx({'type':'expense', 'item':'اشتراك نت', 'amount':55, 'category':'نت', 'account':'Wahda'})
         st.toast("تم!")
-        time.sleep(0.5)
-        st.rerun() 
+        time.sleep(0.5); st.rerun() 
     if col_q2.button("☕ قهوة (5)"):
-        add_tx({'type':'expense', 'item':'قهوة', 'amount':5, 'category':'بوفيه', 'account':'Cash'})
-        st.toast("صحة!")
-        time.sleep(0.5)
-        st.rerun()
+        add_tx({'type':'expense', 'item':'قهوة', 'amount':5, 'category':'أكل', 'account':'Cash'})
+        st.toast("صحة!"); time.sleep(0.5); st.rerun()
     if st.button("🏋️ جيم 3 شهور (200)"):
         add_tx({'type':'expense', 'item':'اشتراك جيم', 'amount':200, 'category':'رياضة', 'account':'Cash'})
-        st.toast("وحش!")
-        time.sleep(0.5)
-        st.rerun()
+        st.toast("وحش!"); time.sleep(0.5); st.rerun()
 
     st.write("---")
-
-    # التقارير (الأزرار الأربعة)
     def to_excel(df_in):
         output = io.BytesIO()
         df_export = df_in.copy()
-        trans = {'Groceries':'تموين','Transport':'مواصلات','Gym':'رياضة'}
-        if 'category' in df_export.columns:
-            df_export['category'] = df_export['category'].map(lambda x: trans.get(x, x))
+        df_export['category'] = df_export['category'].apply(unify_category) # توحيد في التقرير أيضاً
         df_export = df_export.rename(columns={'timestamp': 'التاريخ', 'item': 'البيان', 'amount': 'القيمة', 'category': 'التصنيف', 'account': 'الحساب', 'type': 'النوع'})
         df_export['التاريخ'] = df_export['التاريخ'].dt.strftime('%Y-%m-%d %I:%M %p')
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
             df_export[['التاريخ', 'البيان', 'القيمة', 'الحساب', 'التصنيف', 'النوع']].to_excel(writer, index=False, sheet_name='Sheet1')
-            worksheet = writer.sheets['Sheet1']
-            worksheet.right_to_left()
+            writer.sheets['Sheet1'].right_to_left()
         return output.getvalue()
 
     with st.expander("📥 التقارير والديون", expanded=True):
         if not df.empty:
             now = datetime.now()
-            # 1. أسبوع
             week_date = now - timedelta(days=7)
-            df_week = df[df['timestamp'] >= week_date]
-            if not df_week.empty: st.download_button("📆 تقرير آخر أسبوع", to_excel(df_week), f"Week_{now.date()}.xlsx", use_container_width=True)
-            # 2. شهر
             month_date = now - timedelta(days=30)
-            df_month = df[df['timestamp'] >= month_date]
-            if not df_month.empty: st.download_button("📅 تقرير آخر شهر", to_excel(df_month), f"Month_{now.date()}.xlsx", use_container_width=True)
-            # 3. كامل
-            st.download_button("🗂️ السجل الكامل", to_excel(df), f"Full_{now.date()}.xlsx", use_container_width=True)
-            # 4. ديون
+            
+            st.download_button("📆 تقرير آخر أسبوع", to_excel(df[df['timestamp'] >= week_date]), f"Week.xlsx", use_container_width=True)
+            st.download_button("📅 تقرير آخر شهر", to_excel(df[df['timestamp'] >= month_date]), f"Month.xlsx", use_container_width=True)
+            st.download_button("🗂️ السجل الكامل", to_excel(df), f"Full.xlsx", use_container_width=True)
+            
             debt_types = ['lend', 'borrow', 'repay_in', 'repay_out']
             df_debt = df[df['type'].isin(debt_types)]
-            if not df_debt.empty: st.download_button("📒 دفتر الديون", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
+            if not df_debt.empty: 
+                st.download_button("📒 دفتر الديون", to_excel(df_debt), f"Debt.xlsx", use_container_width=True)
 
     with st.expander("🎯 ضبط الميزانية"):
         new_limit = st.number_input("الحد الشهري:", value=float(budget_limit), step=100.0)
-        if st.button("حفظ الميزانية"):
-            set_budget(new_limit)
-            st.rerun()
+        if st.button("حفظ الميزانية"): set_budget(new_limit); st.rerun()
 
     with st.expander("☢️ تصفير"):
         del_pass = st.text_input("تأكيد الحذف:", type="password")
         if st.button("🗑️ حذف الكل"):
-            if del_pass == st.secrets["FAMILY_PASSWORD"]:
-                delete_all_data()
-                st.rerun()
+            if del_pass == st.secrets["FAMILY_PASSWORD"]: delete_all_data(); st.rerun()
 
 # السجل
 st.subheader("📜 آخر الحركات")
@@ -401,15 +421,4 @@ if not df.empty:
         elif t_type == 'repay_out': css = "card-repay_out"
         elif amount > 0: css = "card-income"
         else: css = "card-expense"
-            
-        st.markdown(f'''
-        <div class="transaction-card {css}">
-            <div style="display: flex; justify-content: space-between;">
-                <strong>{amount:,.3f} د.ل</strong>
-                <span>{item['item']}</span>
-            </div>
-            <div class="small-details">
-                {item['timestamp'].strftime("%d/%m %I:%M%p")} | {item['account']} | {item.get('category','')}
-            </div>
-        </div>
-        ''', unsafe_allow_html=True)
+        st.markdown(f'''<div class="transaction-card {css}"><div style="display: flex; justify-content: space-between;"><strong>{amount:,.3f} د.ل</strong><span>{item['item']}</span></div><div class="small-details">{item['timestamp'].strftime("%d/%m %I:%M%p")} | {item['account']} | {item.get('category','')}</div></div>''', unsafe_allow_html=True)
