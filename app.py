@@ -48,13 +48,13 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v13")
+def get_manager(): return stx.CookieManager(key="amin_manager_v14")
 cookie_manager = get_manager()
 
 def check_auth():
     if st.session_state.get("auth_success", False): return True
     try:
-        if cookie_manager.get("amin_key_v13") == st.secrets["FAMILY_PASSWORD"]:
+        if cookie_manager.get("amin_key_v14") == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
             return True
     except: pass
@@ -63,7 +63,7 @@ def check_auth():
     def password_entered():
         if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
             st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v13", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+            cookie_manager.set("amin_key_v14", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
         else:
             st.session_state.auth_success = False
     st.text_input("Access Code", type="password", key="password_input", on_change=password_entered)
@@ -99,7 +99,7 @@ def analyze_smart(text):
         return json.loads(clean)
     except: return None
 
-# دالة المحلل الذكي (التي عادت من جديد) 🤖
+# دالة المحلل الذكي
 def ask_analyst(question, dataframe):
     if dataframe.empty: return "مافيش بيانات نحللها يا هندسة."
     data_summary = dataframe.to_string(index=False)
@@ -188,35 +188,26 @@ col4.metric("💰 الإجمالي", f"{sum(balance.values()):,.3f} د.ل")
 
 st.divider()
 
-# --- 🎯 نظام الميزانية (الذي عاد) ---
-st.subheader("🎯 هدف الشهر (الخط الأحمر)")
+# نظام الميزانية
+st.subheader("🎯 هدف الشهر")
 budget_limit = get_budget()
 if not df.empty:
     now = datetime.now() + timedelta(hours=2)
     start_of_month = now.replace(day=1, hour=0, minute=0, second=0)
-    
-    # حساب مصاريف الشهر (Expense only)
-    month_expenses = df[
-        (df['timestamp'] >= start_of_month) & 
-        (df['type'] == 'expense')
-    ]['amount'].sum()
+    month_expenses = df[(df['timestamp'] >= start_of_month) & (df['type'] == 'expense')]['amount'].sum()
     month_spent = abs(month_expenses)
     
     percent = min(month_spent / budget_limit, 1.0)
     st.progress(percent)
-    
     c1, c2 = st.columns(2)
     c1.write(f"صرفت: **{month_spent:,.0f}** د.ل")
     c2.write(f"الحد: **{budget_limit:,.0f}** د.ل")
-    
-    if month_spent > budget_limit:
-        st.error(f"⚠️ تجاوزت الميزانية بـ {month_spent - budget_limit:,.0f} د.ل")
-else:
-    st.info("سجل مصاريف عشان يشتغل العداد")
+    if month_spent > budget_limit: st.error(f"⚠️ تجاوزت الميزانية بـ {month_spent - budget_limit:,.0f} د.ل")
+else: st.info("سجل مصاريف عشان يشتغل العداد")
 
 st.divider()
 
-# أرصدة الديون
+# الديون
 st.subheader("⚖️ ميزان الديون")
 d1, d2 = st.columns(2)
 d1.metric("🟠 لي عند الناس", f"{debt_assets:,.3f} د.ل")
@@ -231,24 +222,27 @@ if not df.empty:
     if not expenses_df.empty:
         category_sum = expenses_df.groupby('category')['amount'].sum().abs().reset_index()
         fig = px.pie(category_sum, values='amount', names='category', 
-                     color_discrete_sequence=px.colors.qualitative.Pastel,
-                     hole=0.4) 
+                     color_discrete_sequence=px.colors.qualitative.Pastel, hole=0.4) 
         fig.update_traces(textposition='inside', textinfo='percent+label')
         fig.update_layout(showlegend=False, height=350, margin=dict(l=10, r=10, t=10, b=10))
         st.plotly_chart(fig, use_container_width=True)
-    else:
-        st.caption("مافيش مصاريف للرسم.")
+    else: st.caption("مافيش مصاريف للرسم.")
 
 st.divider()
 
-# --- 💬 المحلل الذكي (الذي عاد) ---
+# --- 💬 المحلل الذكي (مع المسح التلقائي) ---
 with st.expander("💬 اسأل المحلل الذكي (AI)", expanded=False):
     st.caption("اسأل عن فلوسك، مثلاً: كم صرفت على الأكل؟ من يبي مني فلوس؟")
-    user_q = st.text_input("سؤالك:")
-    if user_q and not df.empty:
-        with st.spinner("قاعد نفكر..."):
-            answer = ask_analyst(user_q, df.head(100))
-            st.success(answer)
+    
+    # 🔴 التغيير هنا: حطيناه داخل فورم عشان يتصفر
+    with st.form("ai_chat", clear_on_submit=True):
+        user_q = st.text_input("سؤالك:")
+        submitted = st.form_submit_button("إرسال 🗣️")
+        
+        if submitted and user_q and not df.empty:
+            with st.spinner("قاعد نفكر..."):
+                answer = ask_analyst(user_q, df.head(100))
+                st.success(answer)
 
 st.divider()
 
@@ -290,7 +284,7 @@ with st.sidebar:
 
     st.write("---")
 
-    # قسم التقارير المنسق (4 أزرار)
+    # التقارير
     def to_excel(df_in):
         output = io.BytesIO()
         df_export = df_in.copy()
@@ -311,20 +305,17 @@ with st.sidebar:
             # 1. أسبوع
             week_date = now - timedelta(days=7)
             df_week = df[df['timestamp'] >= week_date]
-            if not df_week.empty:
-                st.download_button("📆 تقرير آخر أسبوع", to_excel(df_week), f"Week_{now.date()}.xlsx", use_container_width=True)
+            if not df_week.empty: st.download_button("📆 تقرير آخر أسبوع", to_excel(df_week), f"Week_{now.date()}.xlsx", use_container_width=True)
             # 2. شهر
             month_date = now - timedelta(days=30)
             df_month = df[df['timestamp'] >= month_date]
-            if not df_month.empty:
-                st.download_button("📅 تقرير آخر شهر", to_excel(df_month), f"Month_{now.date()}.xlsx", use_container_width=True)
+            if not df_month.empty: st.download_button("📅 تقرير آخر شهر", to_excel(df_month), f"Month_{now.date()}.xlsx", use_container_width=True)
             # 3. كامل
             st.download_button("🗂️ السجل الكامل", to_excel(df), f"Full_{now.date()}.xlsx", use_container_width=True)
             # 4. ديون
             debt_types = ['lend', 'borrow', 'repay_in', 'repay_out']
             df_debt = df[df['type'].isin(debt_types)]
-            if not df_debt.empty:
-                st.download_button("📒 دفتر الديون (لي وعليا)", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
+            if not df_debt.empty: st.download_button("📒 دفتر الديون", to_excel(df_debt), f"Debt_Only_{now.date()}.xlsx", use_container_width=True)
 
     with st.expander("🎯 ضبط الميزانية"):
         new_limit = st.number_input("الحد الشهري:", value=float(budget_limit), step=100.0)
