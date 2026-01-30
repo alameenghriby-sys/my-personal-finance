@@ -85,7 +85,7 @@ SETTINGS_COLLECTION = 'amin_settings'
 
 # --- الذكاء الاصطناعي ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-model = genai.GenerativeModel('gemini-flash-latest')
+model = genai.GenerativeModel('gemini-1.5-flash')
 
 # تحليل النص
 def analyze_text(text):
