@@ -122,22 +122,40 @@ def unify_category(cat_name):
     return cat_name
 
 # تحليل النص
+# تحليل النص (النسخة المعدلة والمحمية)
 def analyze_text(text):
+    # تحسين الأمر (Prompt) ليكون صارماً جداً
     prompt = f"""
-    أنت محاسب ليبي ذكي. حلل: '{text}'
-    استخرج JSON:
-    type: (lend, repay_in, borrow, repay_out, expense, income, transfer).
-    amount: رقم فقط.
-    category: (أكل, نت, سيارة, تسوق, تموين, ديون, تحويلات, رياضة, هدايا). *اكتب بالعربي فقط*.
-    item: وصف مختصر.
-    account: (Cash, Wahda, NAB).
+    أنت نظام محاسبي دقيق API.
+    مهمتك: تحويل النص المدخل إلى كائن JSON فقط.
+    النص المدخل: '{text}'
+    
+    القواعد:
+    1. استخرج الحقول: type, amount, category, item, account.
+    2. الحقل type يجب أن يكون أحد القيم: (lend, repay_in, borrow, repay_out, expense, income, transfer).
+    3. الحقل category اختر من: (أكل, نت, سيارة, تسوق, تموين, ديون, تحويلات, رياضة, هدايا, عام).
+    4. الحقل amount رقم فقط (بدون عملة).
+    5. إذا لم تفهم النص، اجعل type = "expense" و amount = 0.
     """
+    
     try:
-        response = model.generate_content(prompt)
-        clean = response.text.replace('```json', '').replace('```', '').strip()
-        return json.loads(clean)
+        # 💡 الحل السحري: إجبار الموديل على إخراج JSON
+        response = model.generate_content(
+            prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
+        
+        # طباعة الرد في التيرمينال للمراجعة (Debugging)
+        print(f"DEBUG RESPONSE: {response.text}") 
+        
+        return json.loads(response.text)
+        
     except Exception as e:
-        st.error(f"خطأ في تحليل النص: {e}") # كشف الخطأ هنا أيضاً
+        # عرض الخطأ + النص الخام اللي وصل عشان نعرفوا السبب
+        st.error(f"فشل التحليل. السبب: {e}")
+        try:
+             st.warning(f"الرد الخام من الموديل كان: {response.text}")
+        except: pass
         return None
 
 # تحليل الصورة
