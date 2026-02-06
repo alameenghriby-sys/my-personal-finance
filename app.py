@@ -86,7 +86,7 @@ SETTINGS_COLLECTION = 'amin_settings'
 # --- الذكاء الاصطناعي ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
 # استخدمنا الموديل المستقر المجاني
-model = genai.GenerativeModel('gemini-flash-latest')
+model = genai.GenerativeModel('gemini-2.5-flash')
 
 # دالة توحيد التصنيفات (The Cleaner) 🧹
 def unify_category(cat_name):
