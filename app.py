@@ -6,7 +6,7 @@ import firebase_admin
 from firebase_admin import credentials
 from firebase_admin import firestore
 from datetime import datetime, timedelta
-import extra_streamlit_components as stx
+# تم حذف مكتبة الكوكيز المعقدة
 import time
 import io
 import plotly.express as px
@@ -34,8 +34,8 @@ st.markdown("""
     /* ألوان العمليات */
     .card-income { border-right: 6px solid #2e7d32; }
     .card-expense { border-right: 6px solid #c62828; }
-    .card-lend { border-right: 6px solid #f57c00; }     
-    .card-borrow { border-right: 6px solid #7b1fa2; }   
+    .card-lend { border-right: 6px solid #f57c00; }      
+    .card-borrow { border-right: 6px solid #7b1fa2; }    
     .card-repay_in { border-right: 6px solid #0288d1; } 
     .card-repay_out { border-right: 6px solid #d32f2f; }
 
@@ -48,30 +48,29 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-# --- الحماية ---
-def get_manager(): return stx.CookieManager(key="amin_manager_v20")
-cookie_manager = get_manager()
-
-def check_auth():
-    if st.session_state.get("auth_success", False): return True
-    try:
-        if cookie_manager.get("amin_key_v20") == st.secrets["FAMILY_PASSWORD"]:
-            st.session_state.auth_success = True
-            return True
-    except: pass
-
-    st.markdown("<h2 style='text-align: center;'>⚡ المهندس الأمين</h2>", unsafe_allow_html=True)
+# --- الحماية (النظام البسيط والمضمون) ---
+# استبدلنا الكوكيز مانيجر بهذا النظام المستقر
+def check_password():
     def password_entered():
-        if st.session_state["password_input"] == st.secrets["FAMILY_PASSWORD"]:
-            st.session_state.auth_success = True
-            cookie_manager.set("amin_key_v20", st.session_state["password_input"], expires_at=datetime.now() + timedelta(days=90))
+        if st.session_state["password"] == st.secrets["FAMILY_PASSWORD"]:
+            st.session_state["password_correct"] = True
+            del st.session_state["password"]
         else:
-            st.session_state.auth_success = False
-    st.text_input("Access Code", type="password", key="password_input", on_change=password_entered)
-    if st.session_state.get("auth_success") is False: st.error("Access Denied ❌")
-    return False
+            st.session_state["password_correct"] = False
 
-if not check_auth(): st.stop()
+    if "password_correct" not in st.session_state:
+        st.markdown("<h2 style='text-align: center;'>⚡ المهندس الأمين</h2>", unsafe_allow_html=True)
+        st.text_input("🔑 Access Code", type="password", on_change=password_entered, key="password")
+        return False
+    elif not st.session_state["password_correct"]:
+        st.text_input("🔑 Access Code", type="password", on_change=password_entered, key="password")
+        st.error("❌ Access Denied")
+        return False
+    else:
+        return True
+
+if not check_password():
+    st.stop()
 
 # --- قاعدة البيانات ---
 if not firebase_admin._apps:
@@ -85,7 +84,7 @@ SETTINGS_COLLECTION = 'amin_settings'
 
 # --- الذكاء الاصطناعي ---
 genai.configure(api_key=st.secrets["GEMINI_API_KEY"])
-# استخدمنا الموديل المستقر المجاني
+# ✅ استخدام الموديل الأحدث والأسرع
 model = genai.GenerativeModel('gemini-2.5-flash')
 
 # دالة توحيد التصنيفات (The Cleaner) 🧹
@@ -110,7 +109,7 @@ def unify_category(cat_name):
         if key in cat_lower:
             return val
             
-    return cat_name # لو ما لقاش، يرجعه زي ما هو
+    return cat_name
 
 # تحليل النص
 def analyze_text(text):
@@ -209,7 +208,7 @@ if not df.empty:
     if df['timestamp'].dt.tz is not None: df['timestamp'] = df['timestamp'].dt.tz_localize(None)
     df = df.sort_values(by='timestamp', ascending=False)
     
-    # 🔥 هنا السحر: توحيد التصنيفات للبيانات القديمة أيضاً عند العرض
+    # توحيد التصنيفات
     df['category'] = df['category'].apply(unify_category)
 
 # الحسابات
@@ -270,14 +269,13 @@ st.subheader("📊 تحليل المصاريف (الصافي)")
 if not df.empty:
     expenses_df = df[df['type'] == 'expense']
     if not expenses_df.empty:
-        # تجميع البيانات بعد التوحيد
+        # تجميع البيانات
         category_sum = expenses_df.groupby('category')['amount'].sum().abs().reset_index()
         
         fig = px.pie(category_sum, values='amount', names='category', 
-                     color_discrete_sequence=px.colors.qualitative.Set3, # ألوان هادية
+                     color_discrete_sequence=px.colors.qualitative.Set3,
                      hole=0.4) 
         
-        # 🔥 التعديل: إخراج النص للخارج لعدم التداخل
         fig.update_traces(textposition='outside', textinfo='percent+label')
         fig.update_layout(showlegend=False, height=350, margin=dict(l=20, r=20, t=20, b=20))
         
@@ -335,7 +333,6 @@ if st.session_state.draft_tx:
         d_amount = col_rev2.number_input("القيمة", value=float(st.session_state.draft_tx.get('amount', 0.0)))
         
         col_rev3, col_rev4 = st.columns(2)
-        # هنا نعرض التصنيف بعد التوحيد
         cat_unified = unify_category(st.session_state.draft_tx.get('category', 'عام'))
         d_cat = col_rev3.text_input("التصنيف", value=cat_unified)
         d_acc = col_rev4.selectbox("الحساب", ["Cash", "Wahda", "NAB"], index=["Cash", "Wahda", "NAB"].index(st.session_state.draft_tx.get('account', 'Cash')))
@@ -377,7 +374,7 @@ with st.sidebar:
     def to_excel(df_in):
         output = io.BytesIO()
         df_export = df_in.copy()
-        df_export['category'] = df_export['category'].apply(unify_category) # توحيد في التقرير أيضاً
+        df_export['category'] = df_export['category'].apply(unify_category)
         df_export = df_export.rename(columns={'timestamp': 'التاريخ', 'item': 'البيان', 'amount': 'القيمة', 'category': 'التصنيف', 'account': 'الحساب', 'type': 'النوع'})
         df_export['التاريخ'] = df_export['التاريخ'].dt.strftime('%Y-%m-%d %I:%M %p')
         with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
@@ -415,10 +412,11 @@ if not df.empty:
     for index, item in df.head(20).iterrows():
         amount = float(item['amount'])
         t_type = item.get('type', '')
+        css = "card-expense" # افتراضي
         if t_type == 'lend': css = "card-lend"
         elif t_type == 'borrow': css = "card-borrow"
         elif t_type == 'repay_in': css = "card-repay_in"
         elif t_type == 'repay_out': css = "card-repay_out"
         elif amount > 0: css = "card-income"
-        else: css = "card-expense"
+        
         st.markdown(f'''<div class="transaction-card {css}"><div style="display: flex; justify-content: space-between;"><strong>{amount:,.3f} د.ل</strong><span>{item['item']}</span></div><div class="small-details">{item['timestamp'].strftime("%d/%m %I:%M%p")} | {item['account']} | {item.get('category','')}</div></div>''', unsafe_allow_html=True)
