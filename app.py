@@ -422,4 +422,4 @@ if not df.empty:
         elif amount > 0: css = "card-income"
         else: css = "card-expense"
         st.markdown(f'''<div class="transaction-card {css}"><div style="display: flex; justify-content: space-between;"><strong>{amount:,.3f} د.ل</strong><span>{item['item']}</span></div><div class="small-details">{item['timestamp'].strftime("%d/%m %I:%M%p")} | {item['account']} | {item.get('category','')}</div></div>''', unsafe_allow_html=True)
-هذا كود برنامج المصاريف على جيت هوب الخاص بي اعتقد انه هذه النسخة من جيميناي غير متاحة ونحتاج تعديلها وايضا اوة تحتاج الى تحديث + المهم نظم الوضع شوية وراجع اني !!!!
+        
